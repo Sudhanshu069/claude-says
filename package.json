@@ -1,5 +1,5 @@
 {
-  "name": "claude-code-speak",
+  "name": "claude-says",
   "version": "1.0.0",
   "description": "Real-time text-to-speech companion for Claude Code CLI — hear Claude think and narrate as it works",
   "type": "module",
