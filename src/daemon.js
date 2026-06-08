@@ -41,10 +41,13 @@ export class Daemon {
       this._synthesizeAndQueue(seq, text);
     });
 
-    // IPC fallback: handle text from hooks only when not watching a transcript
+    // IPC fallback: handle text from hooks only when not watching a transcript.
+    // Validate shape and bound the size so a rogue local client can't push a
+    // huge payload into the pipeline (and on to paid cloud TTS/LLM APIs).
+    const MAX_IPC_TEXT = 100 * 1024; // 100 KB of text per message
     this.ipc.on('message', (msg) => {
-      if (msg.type === 'text' && msg.text && !this.watcher) {
-        this.processor.feed(msg.text);
+      if (msg && msg.type === 'text' && typeof msg.text === 'string' && !this.watcher) {
+        this.processor.feed(msg.text.slice(0, MAX_IPC_TEXT));
       }
     });
 

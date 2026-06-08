@@ -1,7 +1,11 @@
 import net from 'net';
-import { existsSync, unlinkSync } from 'fs';
+import { existsSync, unlinkSync, chmodSync } from 'fs';
 import { EventEmitter } from 'events';
 import { SOCKET_PATH } from './config.js';
+
+// Cap per-connection buffering so a client that never sends a newline
+// can't grow daemon memory without bound. Real messages are a sentence or two.
+const MAX_BUFFER_BYTES = 1024 * 1024; // 1 MB
 
 export class IPCServer extends EventEmitter {
   constructor() {
@@ -12,6 +16,8 @@ export class IPCServer extends EventEmitter {
 
   start() {
     return new Promise((resolve, reject) => {
+      // Clean up a stale socket. unlink removes the path entry itself (it does
+      // not follow a symlink), so this can't be redirected to another file.
       if (existsSync(SOCKET_PATH)) {
         unlinkSync(SOCKET_PATH);
       }
@@ -22,6 +28,12 @@ export class IPCServer extends EventEmitter {
 
         socket.on('data', (data) => {
           buffer += data.toString();
+          if (buffer.length > MAX_BUFFER_BYTES) {
+            // Oversized, newline-less stream — drop the connection.
+            buffer = '';
+            socket.destroy();
+            return;
+          }
           const lines = buffer.split('\n');
           buffer = lines.pop();
 
@@ -47,7 +59,17 @@ export class IPCServer extends EventEmitter {
       });
 
       this.server.on('error', reject);
-      this.server.listen(SOCKET_PATH, () => resolve());
+      this.server.listen(SOCKET_PATH, () => {
+        // Restrict the socket to the owning user. On macOS the filesystem
+        // permission is enforced on connect, so this blocks other local
+        // accounts from injecting speech into the daemon.
+        try {
+          chmodSync(SOCKET_PATH, 0o600);
+        } catch {
+          // best-effort; listen already succeeded
+        }
+        resolve();
+      });
     });
   }
 

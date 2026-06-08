@@ -66,11 +66,13 @@ export class GeminiNarrator {
     return new Promise((resolve, reject) => {
       const options = {
         hostname: 'generativelanguage.googleapis.com',
-        path: `/v1beta/models/${this.model}:generateContent?key=${this.apiKey}`,
+        path: `/v1beta/models/${this.model}:generateContent`,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(body),
+          // Key in a header, not the URL — keeps it out of proxy/access logs.
+          'x-goog-api-key': this.apiKey,
         },
       };
 
@@ -79,7 +81,8 @@ export class GeminiNarrator {
         res.on('data', (chunk) => data += chunk);
         res.on('end', () => {
           if (res.statusCode !== 200) {
-            reject(new Error(`Gemini API error ${res.statusCode}: ${data}`));
+            // Don't fold the response body into the error — it can reach logs.
+            reject(new Error(`Gemini API error ${res.statusCode}`));
             return;
           }
           try {

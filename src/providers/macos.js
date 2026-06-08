@@ -1,6 +1,7 @@
 import { BaseTTSProvider } from './base.js';
 import { execFile } from 'child_process';
-import { writeFileSync, unlinkSync } from 'fs';
+import { unlinkSync, chmodSync } from 'fs';
+import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -16,7 +17,9 @@ export class MacOSTTSProvider extends BaseTTSProvider {
   }
 
   async synthesize(text) {
-    const outFile = join(tmpdir(), `claude-speak-${Date.now()}.aiff`);
+    // Unpredictable name: avoids collisions between concurrent synth calls and
+    // stops other local processes guessing/reading the rendered audio.
+    const outFile = join(tmpdir(), `claude-speak-${randomUUID()}.aiff`);
 
     await new Promise((resolve, reject) => {
       execFile('say', [
@@ -29,6 +32,9 @@ export class MacOSTTSProvider extends BaseTTSProvider {
         else resolve();
       });
     });
+
+    // Restrict to owner before reading; the file briefly holds spoken content.
+    try { chmodSync(outFile, 0o600); } catch {}
 
     const { readFileSync } = await import('fs');
     const audio = readFileSync(outFile);
