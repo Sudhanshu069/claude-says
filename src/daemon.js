@@ -7,6 +7,7 @@ import { createProvider } from './tts.js';
 import { createNarrator } from './narrator.js';
 import { loadConfig } from './config.js';
 import { findTranscriptPath, getMostRecentSession } from './sessions.js';
+import { logger } from './logger.js';
 
 export class Daemon {
   constructor(options = {}) {
@@ -63,7 +64,7 @@ export class Daemon {
     });
 
     this.audioQueue.on('error', ({ seq, error }) => {
-      this._log(`Error #${seq}: ${error.message}`);
+      logger.error(`Audio error #${seq}: ${error.message}`);
     });
 
     this.audioQueue.on('drained', () => {
@@ -81,7 +82,7 @@ export class Daemon {
         finalText = await this.narrator.narrate(text);
         this._log(`Narrated: "${finalText.slice(0, 70)}${finalText.length > 70 ? '...' : ''}"`);
       } catch (err) {
-        this._log(`Narrator failed, using raw text: ${err.message}`);
+        logger.warn(`Narrator failed, using raw text: ${err.message}`);
       }
     } else {
       this._log(`TTS: "${finalText.slice(0, 70)}${finalText.length > 70 ? '...' : ''}"`);
@@ -112,7 +113,7 @@ export class Daemon {
     });
 
     this.watcher.on('error', (err) => {
-      this._log(`Watcher error: ${err.message}`);
+      logger.error(`Watcher error: ${err.message}`);
     });
 
     this.watcher.start();
@@ -178,8 +179,9 @@ export class Daemon {
     this._log('Stopped.');
   }
 
+  // Operational info logging routes through pino (see src/logger.js).
+  // Timestamps/levels are added by the logger; empty spacer calls are ignored.
   _log(msg) {
-    const time = new Date().toLocaleTimeString();
-    console.log(`[${time}] ${msg}`);
+    if (msg) logger.info(msg);
   }
 }
