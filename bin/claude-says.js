@@ -6,11 +6,15 @@ import { runSetup } from '../src/setup.js';
 import { discoverSessions } from '../src/sessions.js';
 import { listProviders } from '../src/tts.js';
 import readline from 'readline';
+import { readFileSync } from 'fs';
+
+// Single source of truth for the version: the installed package.json.
+const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf-8'));
 
 program
-  .name('claude-speak')
+  .name('claude-says')
   .description('Real-time text-to-speech companion for Claude Code')
-  .version('1.0.0');
+  .version(pkg.version);
 
 program
   .command('start', { isDefault: true })
@@ -19,7 +23,7 @@ program
   .option('-s, --session <id>', 'Listen to a specific session ID')
   .option('-l, --list', 'List available sessions and pick one')
   .option('-r, --rate <number>', 'Speech rate in words per minute (default: 200)', parseInt)
-  .option('-v, --voice <name>', 'macOS voice name (use "claude-speak voices" to list)')
+  .option('-v, --voice <name>', 'macOS voice name (use "claude-says voices" to list)')
   .option('-n, --narrator', 'Enable narrator mode (LLM rephrases output before speaking)')
   .option('--narrator-provider <name>', 'Narrator LLM provider (default: gemini)')
   .action(async (options) => {
@@ -34,14 +38,23 @@ program
       options.transcriptPath = picked.transcriptPath;
     }
 
-    const daemon = new Daemon({
-      provider: options.provider,
-      session: options.session,
-      transcriptPath: options.transcriptPath,
-      narrator: options.narrator,
-      rate: options.rate,
-      voice: options.voice,
-    });
+    let daemon;
+    try {
+      daemon = new Daemon({
+        provider: options.provider,
+        session: options.session,
+        transcriptPath: options.transcriptPath,
+        narrator: options.narrator,
+        narratorProvider: options.narratorProvider,
+        rate: options.rate,
+        voice: options.voice,
+      });
+    } catch (err) {
+      // e.g. an unknown --provider / --narrator-provider: show a clean message
+      // instead of a raw stack trace.
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
 
     // Graceful shutdown
     const shutdown = async () => {
@@ -51,7 +64,13 @@ program
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
 
-    await daemon.start();
+    try {
+      await daemon.start();
+    } catch (err) {
+      console.error(`Failed to start: ${err.message}`);
+      await daemon.stop().catch(() => {});
+      process.exit(1);
+    }
 
     // Interactive controls
     setupControls(daemon);
@@ -119,7 +138,7 @@ program
       if (!options.all) {
         console.log(`\nShowing English voices only. Use --all to see all ${voices.length} voices.`);
       }
-      console.log(`\nUsage: claude-speak --voice "Daniel"`);
+      console.log(`\nUsage: claude-says --voice "Daniel"`);
     });
   });
 
@@ -161,13 +180,43 @@ function setupControls(daemon) {
   readline.emitKeypressEvents(process.stdin);
   process.stdin.setRawMode(true);
 
+  // Restore the terminal to cooked mode on exit so quitting (or a crash) never
+  // leaves the shell without echo / line editing.
+  const restoreTty = () => {
+    try { if (process.stdin.isTTY) process.stdin.setRawMode(false); } catch {}
+  };
+  process.on('exit', restoreTty);
+
   console.log('Controls: [p]ause/resume  [s]witch session  [q]uit\n');
 
   let paused = false;
+  let pendingSessions = null; // when set, the next digit picks a session to switch to
+
   process.stdin.on('keypress', async (str, key) => {
+    if (!key) return;
     if (key.ctrl && key.name === 'c') {
       await daemon.stop();
       process.exit(0);
+    }
+
+    // If we just printed the session list, consume the next digit as the choice.
+    if (pendingSessions) {
+      const choices = pendingSessions;
+      pendingSessions = null;
+      if (str === '0') {
+        daemon.switchSession(null);
+        console.log('Now listening to all sessions (via hooks).\n');
+      } else {
+        const n = parseInt(str, 10);
+        if (Number.isInteger(n) && n >= 1 && n <= choices.length) {
+          const picked = choices[n - 1];
+          daemon.switchSession(picked.sessionId);
+          console.log(`Switched to ${picked.sessionId.slice(0, 8)} ${picked.projectName}\n`);
+        } else {
+          console.log('Session switch cancelled.\n');
+        }
+      }
+      return;
     }
 
     switch (key.name) {
@@ -183,21 +232,21 @@ function setupControls(daemon) {
         break;
 
       case 's': {
-        // Quick session switch
-        const sessions = discoverSessions();
+        // Show the list, then capture the next digit (raw mode = one key) as the
+        // selection and actually switch via daemon.switchSession().
+        const sessions = discoverSessions().slice(0, 9);
         if (sessions.length === 0) {
           console.log('No sessions found.');
           break;
         }
         console.log('\nSessions:');
-        sessions.slice(0, 10).forEach((s, i) => {
+        sessions.forEach((s, i) => {
           const active = daemon.activeSession === s.sessionId ? ' *' : '';
           console.log(`  ${i + 1}. ${s.sessionId.slice(0, 8)} ${s.projectName}${active}`);
         });
         console.log('  0. All sessions');
-        // Note: full interactive switching would need readline,
-        // but for now we just show the list. User can restart with -s flag.
-        console.log('Restart with -s <id> to switch, or -l to pick interactively.\n');
+        console.log('Press a number to switch (any other key cancels)...');
+        pendingSessions = sessions;
         break;
       }
 

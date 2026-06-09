@@ -22,10 +22,10 @@ npm install -g claude-says
 
 ```bash
 # 1. Setup (installs Claude Code hook, tests audio)
-claude-speak setup
+claude-says setup
 
 # 2. Start the daemon in one terminal
-claude-speak
+claude-says
 
 # 3. Use Claude Code in another terminal as normal
 claude
@@ -49,8 +49,8 @@ That's it. When Claude responds, you'll hear it spoken aloud.
 
 ```bash
 # Use a specific provider
-claude-speak setup --provider macos
-claude-speak --provider google
+claude-says setup --provider macos
+claude-says --provider google
 ```
 
 ### macOS (default)
@@ -58,19 +58,19 @@ Works out of the box using the built-in `say` command. No API keys needed.
 
 ```bash
 # Pick a voice
-claude-speak voices              # List English voices
-claude-speak voices --all        # List all 177 voices
-claude-speak --voice "Daniel"    # Use a specific voice
+claude-says voices              # List English voices
+claude-says voices --all        # List all 177 voices
+claude-says --voice "Daniel"    # Use a specific voice
 
 # Control speech rate (words per minute, default: 200)
-claude-speak --rate 150          # Slower
-claude-speak --rate 250          # Faster
+claude-says --rate 150          # Slower
+claude-says --rate 250          # Faster
 
 # Combine options
-claude-speak --voice "Karen" --rate 150
+claude-says --voice "Karen" --rate 150
 ```
 
-You can also set these permanently in `~/.claude-speak/config.json`:
+You can also set these permanently in `~/.claude-says/config.json`:
 ```json
 { "macos": { "voice": "Daniel", "rate": 150 } }
 ```
@@ -78,29 +78,29 @@ You can also set these permanently in `~/.claude-speak/config.json`:
 ### Google Cloud TTS
 ```bash
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
-claude-speak setup --provider google
+claude-says setup --provider google
 ```
 
 ### ElevenLabs
 ```bash
 export ELEVENLABS_API_KEY=your-key
-claude-speak setup --provider elevenlabs
+claude-says setup --provider elevenlabs
 ```
 
 ## Commands
 
 ```bash
-claude-speak              # Start daemon (listen to all sessions)
-claude-speak -l           # Pick a session interactively
-claude-speak -s <id>      # Listen to a specific session
-claude-speak -p <name>    # Use a specific TTS provider
-claude-speak --narrator   # Enable LLM narrator mode (summarizes output)
-claude-speak --voice "Daniel"  # Use a specific macOS voice
-claude-speak --rate 150   # Adjust speech rate (words per minute)
-claude-speak setup        # Configure provider and install hook
-claude-speak sessions     # List Claude Code sessions
-claude-speak providers    # List available TTS providers
-claude-speak voices       # List available macOS voices
+claude-says              # Start daemon (listen to all sessions)
+claude-says -l           # Pick a session interactively
+claude-says -s <id>      # Listen to a specific session
+claude-says -p <name>    # Use a specific TTS provider
+claude-says --narrator   # Enable LLM narrator mode (summarizes output)
+claude-says --voice "Daniel"  # Use a specific macOS voice
+claude-says --rate 150   # Adjust speech rate (words per minute)
+claude-says setup        # Configure provider and install hook
+claude-says sessions     # List Claude Code sessions
+claude-says providers    # List available TTS providers
+claude-says voices       # List available macOS voices
 ```
 
 ## Controls (while daemon is running)
@@ -115,7 +115,7 @@ claude-speak voices       # List available macOS voices
 
 1. A `Stop` hook in Claude Code fires after each response
 2. The hook reads the session transcript and extracts the assistant's text
-3. Text is sent to the `claude-speak` daemon via Unix socket IPC
+3. Text is sent to the `claude-says` daemon via Unix socket IPC
 4. The daemon splits text into sentences, strips markdown noise, generates audio via TTS, and plays it through an ordered queue
 
 ## Adding a Provider

@@ -4,7 +4,7 @@ import { writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
-const LOG = join(tmpdir(), 'claude-speak-debug.log');
+const LOG = join(tmpdir(), 'claude-says-debug.log');
 let input = '';
 
 process.stdin.setEncoding('utf-8');

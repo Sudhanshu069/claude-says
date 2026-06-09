@@ -2,9 +2,9 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 
-const CONFIG_DIR = join(homedir(), '.claude-speak');
+const CONFIG_DIR = join(homedir(), '.claude-says');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
-const SOCKET_PATH = '/tmp/claude-speak.sock';
+const SOCKET_PATH = '/tmp/claude-says.sock';
 
 const DEFAULT_CONFIG = {
   provider: 'macos',

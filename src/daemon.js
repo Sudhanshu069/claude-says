@@ -27,7 +27,11 @@ export class Daemon {
 
     // Narrator mode
     if (options.narrator) {
-      this.config.narrator = { ...this.config.narrator, enabled: true };
+      this.config.narrator = {
+        ...this.config.narrator,
+        enabled: true,
+        ...(options.narratorProvider && { provider: options.narratorProvider }),
+      };
     }
 
     this.ipc = new IPCServer();
@@ -141,7 +145,7 @@ export class Daemon {
 
   async start() {
     await this.ipc.start();
-    this._log(`claude-code-speak started (tts: ${this.config.provider}${this.narrator ? ', narrator: ' + this.config.narrator.provider : ''})`);
+    this._log(`claude-says started (tts: ${this.config.provider}${this.narrator ? ', narrator: ' + this.config.narrator.provider : ''})`);
 
     // If a specific transcript path was given, watch it
     if (this.transcriptPath) {

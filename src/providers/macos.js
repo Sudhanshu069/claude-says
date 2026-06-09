@@ -19,28 +19,32 @@ export class MacOSTTSProvider extends BaseTTSProvider {
   async synthesize(text) {
     // Unpredictable name: avoids collisions between concurrent synth calls and
     // stops other local processes guessing/reading the rendered audio.
-    const outFile = join(tmpdir(), `claude-speak-${randomUUID()}.aiff`);
+    const outFile = join(tmpdir(), `claude-says-${randomUUID()}.aiff`);
 
-    await new Promise((resolve, reject) => {
-      execFile('say', [
-        '-v', this.voice,
-        '-r', String(this.rate),
-        '-o', outFile,
-        text,
-      ], (error) => {
-        if (error) reject(error);
-        else resolve();
+    try {
+      await new Promise((resolve, reject) => {
+        execFile('say', [
+          '-v', this.voice,
+          '-r', String(this.rate),
+          '-o', outFile,
+          text,
+        ], (error) => {
+          if (error) reject(error);
+          else resolve();
+        });
       });
-    });
 
-    // Restrict to owner before reading; the file briefly holds spoken content.
-    try { chmodSync(outFile, 0o600); } catch {}
+      // Restrict to owner before reading; the file briefly holds spoken content.
+      try { chmodSync(outFile, 0o600); } catch {}
 
-    const { readFileSync } = await import('fs');
-    const audio = readFileSync(outFile);
-    try { unlinkSync(outFile); } catch {}
-
-    return { audio, format: 'aiff' };
+      const { readFileSync } = await import('fs');
+      const audio = readFileSync(outFile);
+      return { audio, format: 'aiff' };
+    } finally {
+      // Always remove the temp file — even if `say` failed partway and left a
+      // partial/zero-byte .aiff behind (e.g. killed mid-render on shutdown).
+      try { unlinkSync(outFile); } catch {}
+    }
   }
 
   async validate() {

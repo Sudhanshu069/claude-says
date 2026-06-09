@@ -11,7 +11,7 @@
       "Bash(npm pack:*)",
       "Bash(npx:*)",
       "Bash(find ~/.claude/projects/ -name *.jsonl -maxdepth 3)",
-      "Bash(gtimeout 3 node bin/claude-speak.js)",
+      "Bash(gtimeout 3 node bin/claude-says.js)",
       "Read(//tmp/**)",
       "Bash(git init:*)",
       "Bash(git branch:*)",

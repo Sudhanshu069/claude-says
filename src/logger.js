@@ -15,7 +15,7 @@ import pino from 'pino';
  * shutdown. If pino-pretty isn't installed, we fall back to NDJSON cleanly.
  *
  * This logger is for the daemon's operational output. Interactive prompts and
- * wizard/CLI output (setup.js, the start-controls in bin/claude-speak.js) stay
+ * wizard/CLI output (setup.js, the start-controls in bin/claude-says.js) stay
  * on console.* — they are user-facing UI, not logs.
  */
 const level = process.env.LOG_LEVEL || 'info';

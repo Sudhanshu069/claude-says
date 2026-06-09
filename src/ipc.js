@@ -106,22 +106,32 @@ export class IPCServer extends EventEmitter {
 }
 
 export function sendToSocket(data) {
-  return new Promise((resolve, reject) => {
+  // Resolves true when the message was handed to the daemon, false when the
+  // daemon was unreachable or the send timed out. Callers (the hook) use this
+  // to avoid advancing past text that was never delivered. Never rejects.
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (delivered) => {
+      if (settled) return;
+      settled = true;
+      resolve(delivered);
+    };
+
     const client = net.createConnection(SOCKET_PATH, () => {
       client.write(JSON.stringify(data) + '\n');
       client.end();
-      resolve();
+      done(true);
     });
 
-    client.on('error', (err) => {
-      // Daemon not running — silently fail
-      resolve();
+    client.on('error', () => {
+      // Daemon not running / unreachable.
+      done(false);
     });
 
-    // Timeout after 100ms to avoid blocking Claude's display
+    // Timeout to avoid blocking Claude's display; treat as non-delivery.
     client.setTimeout(100, () => {
       client.destroy();
-      resolve();
+      done(false);
     });
   });
 }

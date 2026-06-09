@@ -1,4 +1,4 @@
-import { readdirSync, statSync, existsSync } from 'fs';
+import { readdirSync, statSync, existsSync, openSync, readSync, closeSync } from 'fs';
 import { join, basename } from 'path';
 import { homedir } from 'os';
 
@@ -30,7 +30,7 @@ export function discoverSessions() {
           const entryPath = join(projectPath, entry);
           const entryStat = statSync(entryPath);
 
-          const projectName = decodeProjectDir(projectDir);
+          const projectName = readProjectCwd(entryPath) || decodeProjectDir(projectDir);
           const lastActive = entryStat.mtimeMs;
 
           sessions.push({
@@ -77,8 +77,35 @@ function isUUID(str) {
 }
 
 function decodeProjectDir(dir) {
-  // Project dirs encode path as -Users-name-project → /Users/name/project
+  // Fallback only. Project dirs encode the path with '-', but the encoding is
+  // lossy (dashes inside a real directory name are indistinguishable from path
+  // separators), so this can be wrong for dashed names. Prefer readProjectCwd.
   return dir.replace(/^-/, '/').replace(/-/g, '/');
+}
+
+function readProjectCwd(transcriptPath) {
+  // Claude Code transcript records carry the real `cwd`. Read a bounded prefix
+  // and return the first cwd found — accurate even for directories whose names
+  // contain dashes (which decodeProjectDir would mangle into slashes).
+  let fd;
+  try {
+    fd = openSync(transcriptPath, 'r');
+    const buf = Buffer.alloc(8192);
+    const bytes = readSync(fd, buf, 0, buf.length, 0);
+    const text = buf.toString('utf-8', 0, bytes);
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const entry = JSON.parse(line);
+        if (typeof entry.cwd === 'string' && entry.cwd) return entry.cwd;
+      } catch { /* truncated last line in the window — ignore */ }
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) { try { closeSync(fd); } catch {} }
+  }
 }
 
 function formatAge(timestampMs) {

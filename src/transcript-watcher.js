@@ -1,4 +1,5 @@
 import { statSync, openSync, readSync, closeSync, watch } from 'fs';
+import { StringDecoder } from 'string_decoder';
 import { EventEmitter } from 'events';
 
 // fs.watch (FSEvents on macOS) reacts to new transcript content in ~1ms once
@@ -23,6 +24,9 @@ export class TranscriptWatcher extends EventEmitter {
     this.pollTimer = null;
     this.fsWatcher = null;
     this.buffer = '';
+    // Boundary-safe UTF-8 decoder: holds a trailing partial multibyte sequence
+    // until the next read completes it, instead of emitting U+FFFD garbage.
+    this.decoder = new StringDecoder('utf8');
     this.processedLines = new Set();
   }
 
@@ -63,6 +67,13 @@ export class TranscriptWatcher extends EventEmitter {
   _readNewContent() {
     try {
       const stat = statSync(this.path);
+      // File shrank (truncated/rotated in place) — restart from the top rather
+      // than waiting forever for it to grow past a now-stale offset.
+      if (stat.size < this.offset) {
+        this.offset = 0;
+        this.buffer = '';
+        this.decoder = new StringDecoder('utf8');
+      }
       if (stat.size <= this.offset) return;
 
       this.emit('newdata', { bytes: stat.size - this.offset });
@@ -76,8 +87,9 @@ export class TranscriptWatcher extends EventEmitter {
 
       this.offset = stat.size;
 
-      // Append to line buffer and process complete lines
-      this.buffer += buf.toString('utf-8');
+      // Append to line buffer and process complete lines. decoder.write carries
+      // any trailing partial multibyte char across to the next read.
+      this.buffer += this.decoder.write(buf);
       const lines = this.buffer.split('\n');
       this.buffer = lines.pop(); // keep incomplete last line in buffer
 

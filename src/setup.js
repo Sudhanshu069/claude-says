@@ -9,7 +9,7 @@ const CLAUDE_SETTINGS_DIR = join(homedir(), '.claude');
 const CLAUDE_SETTINGS_FILE = join(CLAUDE_SETTINGS_DIR, 'settings.json');
 
 export async function runSetup(options = {}) {
-  console.log('Claude Code Speak — Setup\n');
+  console.log('claude-says — Setup\n');
 
   const config = loadConfig();
   if (options.provider) {
@@ -52,7 +52,7 @@ export async function runSetup(options = {}) {
   // Step 3: Test audio playback
   console.log('Testing audio playback...');
   try {
-    const result = await provider.synthesize('Claude Code Speak is ready.');
+    const result = await provider.synthesize('claude-says is ready.');
     const player = new AudioPlayer();
     await player.play(result.audio, result.format);
     console.log('Audio playback works!\n');
@@ -76,7 +76,7 @@ export async function runSetup(options = {}) {
 
   if (hookInstalled) {
     console.log('Setup complete! Start the daemon with:');
-    console.log('  claude-speak\n');
+    console.log('  claude-says\n');
     console.log('Then use Claude Code normally — you\'ll hear it speak.\n');
   } else {
     console.log('Setup finished WITH WARNINGS: the Stop hook is not installed.');
@@ -92,7 +92,7 @@ function installHook() {
   try {
     // Resolve the absolute path to our hook script
     const hookScriptPath = resolve(
-      new URL('../bin/claude-speak-hook.js', import.meta.url).pathname
+      new URL('../bin/claude-says-hook.js', import.meta.url).pathname
     );
 
     // Read existing settings or create new
@@ -106,35 +106,48 @@ function installHook() {
       settings.hooks = {};
     }
 
-    // Check if our hook is already installed. Tolerate a malformed (non-array)
-    // Stop value rather than throwing on .some()/.push().
+    // Tolerate a malformed (non-array) Stop value rather than throwing.
     const existingHooks = Array.isArray(settings.hooks.Stop) ? settings.hooks.Stop : [];
+
+    // Drop any stale entry from a previous (pre-rename) install that still
+    // points at the old bin/claude-speak-hook.js. That file no longer exists,
+    // so leaving it would make Claude Code invoke a missing script on every
+    // Stop; and not removing it would also leave us appending a duplicate.
+    const stopHooks = existingHooks.filter((group) =>
+      !group.hooks?.some((h) => h.command?.includes('claude-speak-hook'))
+    );
+    const removedStale = stopHooks.length !== existingHooks.length;
+
     // Use the absolute path to THIS node binary instead of relying on PATH,
     // which removes a PATH-hijack vector and survives spaces in paths.
     const hookCommand = `"${process.execPath}" "${hookScriptPath}"`;
 
-    const alreadyInstalled = existingHooks.some((group) =>
-      group.hooks?.some((h) => h.command?.includes('claude-speak-hook'))
+    const alreadyInstalled = stopHooks.some((group) =>
+      group.hooks?.some((h) => h.command?.includes('claude-says-hook'))
     );
 
-    if (alreadyInstalled) {
+    if (alreadyInstalled && !removedStale) {
       console.log('  Hook already installed.');
       return true;
     }
 
-    // Add our hook
-    existingHooks.push({
-      matcher: '*',
-      hooks: [
-        {
-          type: 'command',
-          command: hookCommand,
-          timeout: 5,
-        },
-      ],
-    });
+    if (alreadyInstalled) {
+      console.log('  Removed a stale pre-rename hook entry.');
+    } else {
+      // Add our hook
+      stopHooks.push({
+        matcher: '*',
+        hooks: [
+          {
+            type: 'command',
+            command: hookCommand,
+            timeout: 5,
+          },
+        ],
+      });
+    }
 
-    settings.hooks.Stop = existingHooks;
+    settings.hooks.Stop = stopHooks;
 
     // Write back atomically: write a temp file then rename over the target so
     // an interrupted write can never corrupt the user's settings.json.

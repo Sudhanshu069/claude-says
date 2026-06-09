@@ -4,15 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`claude-code-speak` (npm package: `claude-says`) is a real-time text-to-speech companion for Claude Code CLI. It runs as a background daemon that listens for Claude Code's text output and speaks it aloud using a TTS provider. macOS-only (uses `afplay` for playback).
+`claude-says` is a real-time text-to-speech companion for Claude Code CLI. It runs as a background daemon that listens for Claude Code's text output and speaks it aloud using a TTS provider. macOS-only (uses `afplay` for playback). The npm package and CLI command are both `claude-says`; the GitHub repository is still named `claude-code-speak` (rename pending).
 
 ## Architecture
 
-Two runtime components communicate over a Unix domain socket (`/tmp/claude-speak.sock`):
+Two runtime components communicate over a Unix domain socket (`/tmp/claude-says.sock`):
 
-1. **Hook script** (`bin/claude-speak-hook.js`) — Installed as a Claude Code `Stop` hook. Reads the session transcript, extracts new assistant text since last invocation (tracked via byte-offset state files in `/tmp/claude-speak-state/`), and sends it to the daemon. Must complete within 3s to avoid blocking Claude's output.
+1. **Hook script** (`bin/claude-says-hook.js`) — Installed as a Claude Code `Stop` hook. Reads the session transcript, extracts new assistant text since last invocation (tracked via byte-offset state files in `/tmp/claude-says-state/`), and sends it to the daemon. Must complete within 3s to avoid blocking Claude's output.
 
-2. **Daemon** (`bin/claude-speak.js` → `src/daemon.js`) — Long-running process with two text ingestion paths:
+2. **Daemon** (`bin/claude-says.js` → `src/daemon.js`) — Long-running process with two text ingestion paths:
    - **TranscriptWatcher** (`src/transcript-watcher.js`) — Watches a JSONL transcript file via `fs.watch` for near-instant reaction, with a 200ms safety poll as a fallback. Emits `text` events for new assistant messages. Deduplicates by UUID.
    - **IPC fallback** — Receives text from hooks via Unix socket when no transcript is being watched.
 
@@ -38,14 +38,14 @@ Claude Code transcript (JSONL)
 - `src/tts.js` — Provider factory. Providers in `src/providers/` extend `BaseTTSProvider` with `synthesize(text)` and `validate()`.
 - `src/narrator.js` — Narrator factory. Narrators in `src/narrators/` rephrase text via LLM before TTS.
 - `src/sessions.js` — Discovers Claude Code sessions from `~/.claude/projects/`.
-- `src/config.js` — Config from `~/.claude-speak/config.json`. Exports `SOCKET_PATH`, `DEFAULT_CONFIG`.
+- `src/config.js` — Config from `~/.claude-says/config.json`. Exports `SOCKET_PATH`, `DEFAULT_CONFIG`.
 
 ### Runtime Paths
 
-- Config: `~/.claude-speak/config.json`
-- Socket: `/tmp/claude-speak.sock`
-- Hook state: `/tmp/claude-speak-state/`
-- Audio temp files: `/tmp/claude-speak-audio/`
+- Config: `~/.claude-says/config.json`
+- Socket: `/tmp/claude-says.sock`
+- Hook state: `/tmp/claude-says-state/`
+- Audio temp files: `/tmp/claude-says-audio/`
 
 ### Logging
 
@@ -66,8 +66,8 @@ logger.error(`failed: ${err.message}`);
 ```
 
 - Inside `Daemon`, the legacy `this._log(msg)` helper routes to `logger.info` (empty spacer calls are ignored); error/degraded paths call `logger.error`/`logger.warn` directly.
-- **Operational logs only.** Interactive prompts and wizard/CLI output (`src/setup.js`, the start-controls in `bin/claude-speak.js`) intentionally stay on `console.*` — they are user-facing UI, not logs.
-- Example: `LOG_LEVEL=debug node bin/claude-speak.js start` for verbose output; `node bin/claude-speak.js start | jq` for JSON logs.
+- **Operational logs only.** Interactive prompts and wizard/CLI output (`src/setup.js`, the start-controls in `bin/claude-says.js`) intentionally stay on `console.*` — they are user-facing UI, not logs.
+- Example: `LOG_LEVEL=debug node bin/claude-says.js start` for verbose output; `node bin/claude-says.js start | jq` for JSON logs.
 
 ## Commands
 
@@ -76,13 +76,13 @@ npm i                           # install dependencies
 npm start                       # start the daemon
 npm run setup                   # configure TTS provider and install hook
 
-node bin/claude-speak.js start             # start daemon
-node bin/claude-speak.js start -p macos    # start with specific TTS provider
-node bin/claude-speak.js start -l          # pick a session interactively
-node bin/claude-speak.js start --narrator  # enable LLM narrator mode
-node bin/claude-speak.js setup             # run setup wizard
-node bin/claude-speak.js sessions          # list discovered sessions
-node bin/claude-speak.js providers         # list available TTS providers
+node bin/claude-says.js start             # start daemon
+node bin/claude-says.js start -p macos    # start with specific TTS provider
+node bin/claude-says.js start -l          # pick a session interactively
+node bin/claude-says.js start --narrator  # enable LLM narrator mode
+node bin/claude-says.js setup             # run setup wizard
+node bin/claude-says.js sessions          # list discovered sessions
+node bin/claude-says.js providers         # list available TTS providers
 node bin/debug-hook.js                     # debug hook execution manually
 ```
 

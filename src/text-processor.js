@@ -15,21 +15,28 @@ export class TextProcessor extends EventEmitter {
   feed(text) {
     if (!text || typeof text !== 'string') return;
 
-    // Track code block state
-    const fenceMatches = text.match(/```/g);
-    if (fenceMatches) {
-      for (const _ of fenceMatches) {
-        this.inCodeBlock = !this.inCodeBlock;
-      }
+    // Strip fenced code blocks (``` ... ```), keeping only the prose OUTSIDE
+    // them. We split on ``` and walk the segments, flipping in/out of a code
+    // block at each fence. This is correct whether a block is split across
+    // feeds (the inCodeBlock flag carries state between calls) or arrives whole
+    // in a single feed — a complete block within one feed has an even number of
+    // fences, so the old "toggle then drop the whole chunk" logic spoke its body
+    // aloud. Here the in-block segments (including the opening ```js language
+    // tag) are simply omitted.
+    const segments = text.split('```');
+    let visible = '';
+    for (let i = 0; i < segments.length; i++) {
+      if (!this.inCodeBlock) visible += segments[i];
+      if (i < segments.length - 1) this.inCodeBlock = !this.inCodeBlock;
     }
 
-    // Skip content inside code blocks
-    if (this.inCodeBlock) return;
+    // Nothing speakable in this chunk (all code/empty) — nothing to buffer.
+    if (!visible.trim()) return;
 
     // Filter out tool/noise content
-    if (this._isNoise(text)) return;
+    if (this._isNoise(visible)) return;
 
-    this.buffer += text;
+    this.buffer += visible;
     this._tryFlush();
     this._scheduleFlush();
   }

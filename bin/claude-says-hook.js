@@ -12,8 +12,8 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join, resolve } from 'path';
 import { tmpdir, homedir } from 'os';
 
-const STATE_DIR = join(tmpdir(), 'claude-speak-state');
-const DEBUG_LOG = join(tmpdir(), 'claude-speak-hook.log');
+const STATE_DIR = join(tmpdir(), 'claude-says-state');
+const DEBUG_LOG = join(tmpdir(), 'claude-says-hook.log');
 // Transcripts always live under ~/.claude — refuse to read anything else.
 const CLAUDE_DIR = join(homedir(), '.claude');
 const MAX_INPUT_BYTES = 10 * 1024 * 1024; // 10 MB stdin guard
@@ -85,18 +85,23 @@ process.stdin.on('end', async () => {
       } catch {}
     }
 
-    // Update state with new offset
-    writeFileSync(stateFile, String(fullTranscript.length));
-
-    // Send all new text to daemon
+    // Send all new text to daemon. Only advance the saved offset once the text
+    // has actually been handed off (or there was nothing to send) — otherwise a
+    // transient failure (daemon down / connect timeout) would skip this text
+    // forever on the next invocation.
+    let delivered = true;
     if (texts.length > 0) {
       const combined = texts.join(' ');
-      await sendToSocket({
+      delivered = await sendToSocket({
         type: 'text',
         session_id: sessionId,
         text: combined,
         timestamp: Date.now(),
       });
+    }
+
+    if (delivered) {
+      writeFileSync(stateFile, String(fullTranscript.length));
     }
   } catch (err) {
     try {

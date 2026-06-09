@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
-const TEMP_DIR = join(tmpdir(), 'claude-speak-audio');
+const TEMP_DIR = join(tmpdir(), 'claude-says-audio');
 
 export class AudioPlayer {
   constructor() {
@@ -38,11 +38,11 @@ export class AudioPlayer {
         } catch {}
 
         if (error && error.killed) {
-          resolve(); // stopped intentionally
+          resolve({ interrupted: true }); // stopped intentionally (pause/clear)
         } else if (error) {
           reject(error);
         } else {
-          resolve();
+          resolve({ interrupted: false });
         }
       });
     });

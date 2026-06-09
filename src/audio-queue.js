@@ -74,10 +74,22 @@ export class AudioQueue extends EventEmitter {
         entry.status = 'playing';
         this.emit('playing', { seq: this.nextToPlay, queueSize: this.queue.size });
 
+        let interrupted = false;
         try {
-          await this.player.play(entry.audio, entry.format);
+          const result = await this.player.play(entry.audio, entry.format);
+          interrupted = !!(result && result.interrupted);
         } catch (err) {
           this.emit('error', { seq: this.nextToPlay, error: err });
+        }
+
+        // pause()/clear() killed playback (player resolves with interrupted).
+        // Leave this entry 'ready' and stop draining so resume() replays it from
+        // the start instead of silently losing the sentence. (This also makes a
+        // clear()-during-playback exit the loop cleanly without advancing
+        // nextToPlay over the now-empty queue.)
+        if (interrupted) {
+          entry.status = 'ready';
+          break;
         }
 
         entry.status = 'done';
