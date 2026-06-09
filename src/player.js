@@ -1,5 +1,6 @@
 import { writeFileSync, unlinkSync, existsSync, mkdirSync } from 'fs';
 import { execFile } from 'child_process';
+import { randomUUID } from 'crypto';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -9,7 +10,8 @@ export class AudioPlayer {
   constructor() {
     this.currentProcess = null;
     if (!existsSync(TEMP_DIR)) {
-      mkdirSync(TEMP_DIR, { recursive: true });
+      // Owner-only dir: the temp files hold the audio of the user's session.
+      mkdirSync(TEMP_DIR, { recursive: true, mode: 0o700 });
     }
   }
 
@@ -21,9 +23,11 @@ export class AudioPlayer {
   play(audioBuffer, format = 'wav') {
     return new Promise((resolve, reject) => {
       const ext = format === 'mp3' ? '.mp3' : '.wav';
-      const tmpFile = join(TEMP_DIR, `chunk-${Date.now()}${ext}`);
+      // Unpredictable name (no other process can guess/enumerate it) and
+      // owner-only perms. Random names also avoid same-millisecond collisions.
+      const tmpFile = join(TEMP_DIR, `chunk-${randomUUID()}${ext}`);
 
-      writeFileSync(tmpFile, audioBuffer);
+      writeFileSync(tmpFile, audioBuffer, { mode: 0o600 });
 
       // Use afplay on macOS (built-in, no dependencies)
       this.currentProcess = execFile('afplay', [tmpFile], (error) => {

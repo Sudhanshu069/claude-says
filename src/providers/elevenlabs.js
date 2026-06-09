@@ -81,9 +81,10 @@ export class ElevenLabsTTSProvider extends BaseTTSProvider {
 
       const req = https.request(options, (res) => {
         if (res.statusCode !== 200) {
-          let errBody = '';
-          res.on('data', (d) => errBody += d);
-          res.on('end', () => reject(new Error(`ElevenLabs API error ${res.statusCode}: ${errBody}`)));
+          // Drain and reject with the status only — the body may contain
+          // account/voice details that shouldn't land in console logs.
+          res.resume();
+          res.on('end', () => reject(new Error(`ElevenLabs API error ${res.statusCode}`)));
           return;
         }
 

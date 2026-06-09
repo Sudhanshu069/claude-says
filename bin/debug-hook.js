@@ -11,7 +11,8 @@ process.stdin.setEncoding('utf-8');
 process.stdin.on('data', (chunk) => { input += chunk; });
 process.stdin.on('end', () => {
   const ts = new Date().toISOString();
-  writeFileSync(LOG, `[${ts}] ${input}\n`, { flag: 'a' });
+  // Owner-only: this log captures full hook payloads (session ids, paths).
+  writeFileSync(LOG, `[${ts}] ${input}\n`, { flag: 'a', mode: 0o600 });
   process.exit(0);
 });
 setTimeout(() => process.exit(0), 1000);

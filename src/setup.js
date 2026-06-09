@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs';
 import { join, resolve } from 'path';
 import { homedir } from 'os';
 import { createProvider, listProviders } from './tts.js';
@@ -70,15 +70,22 @@ export async function runSetup(options = {}) {
     console.log('Hook installation failed — you may need to add it manually.\n');
   }
 
-  // Step 5: Save config
+  // Step 5: Save config (TTS is configured and validated regardless of the hook)
   saveConfig(config);
   console.log('Configuration saved.\n');
 
-  console.log('Setup complete! Start the daemon with:');
-  console.log('  claude-speak\n');
-  console.log('Then use Claude Code normally — you\'ll hear it speak.\n');
+  if (hookInstalled) {
+    console.log('Setup complete! Start the daemon with:');
+    console.log('  claude-speak\n');
+    console.log('Then use Claude Code normally — you\'ll hear it speak.\n');
+  } else {
+    console.log('Setup finished WITH WARNINGS: the Stop hook is not installed.');
+    console.log('TTS is configured, but real-time speech via hooks is disabled');
+    console.log('until you add the hook to ~/.claude/settings.json manually.\n');
+  }
 
-  return true;
+  // Report honestly: success only when every step (including the hook) passed.
+  return hookInstalled;
 }
 
 function installHook() {
@@ -99,9 +106,12 @@ function installHook() {
       settings.hooks = {};
     }
 
-    // Check if our hook is already installed
-    const existingHooks = settings.hooks.Stop || [];
-    const hookCommand = `node ${hookScriptPath}`;
+    // Check if our hook is already installed. Tolerate a malformed (non-array)
+    // Stop value rather than throwing on .some()/.push().
+    const existingHooks = Array.isArray(settings.hooks.Stop) ? settings.hooks.Stop : [];
+    // Use the absolute path to THIS node binary instead of relying on PATH,
+    // which removes a PATH-hijack vector and survives spaces in paths.
+    const hookCommand = `"${process.execPath}" "${hookScriptPath}"`;
 
     const alreadyInstalled = existingHooks.some((group) =>
       group.hooks?.some((h) => h.command?.includes('claude-speak-hook'))
@@ -126,11 +136,14 @@ function installHook() {
 
     settings.hooks.Stop = existingHooks;
 
-    // Write back
+    // Write back atomically: write a temp file then rename over the target so
+    // an interrupted write can never corrupt the user's settings.json.
     if (!existsSync(CLAUDE_SETTINGS_DIR)) {
       mkdirSync(CLAUDE_SETTINGS_DIR, { recursive: true });
     }
-    writeFileSync(CLAUDE_SETTINGS_FILE, JSON.stringify(settings, null, 2));
+    const tmpFile = `${CLAUDE_SETTINGS_FILE}.tmp`;
+    writeFileSync(tmpFile, JSON.stringify(settings, null, 2));
+    renameSync(tmpFile, CLAUDE_SETTINGS_FILE);
 
     return true;
   } catch (err) {
