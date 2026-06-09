@@ -31,6 +31,7 @@ Claude Code transcript (JSONL)
 ### Key Modules
 
 - `src/daemon.js` — Orchestrator. Wires all components together, handles session switching, auto-detects most recent session.
+- `src/logger.js` — pino-based operational logger for the daemon (see [Logging](#logging)).
 - `src/text-processor.js` — Buffers streaming text, splits at sentence boundaries, strips markdown/URLs/code blocks, filters noise.
 - `src/audio-queue.js` — Sequence-ordered FIFO. Plays audio in order regardless of when TTS responses arrive.
 - `src/ipc.js` — Unix socket IPC. Newline-delimited JSON protocol. Exports `IPCServer` (daemon) and `sendToSocket` (hook).
@@ -45,6 +46,28 @@ Claude Code transcript (JSONL)
 - Socket: `/tmp/claude-speak.sock`
 - Hook state: `/tmp/claude-speak-state/`
 - Audio temp files: `/tmp/claude-speak-audio/`
+
+### Logging
+
+The daemon's operational logging goes through [`pino`](https://getpino.io) via `src/logger.js`, which exports a singleton `logger`.
+
+- **Verbosity** is set by the `LOG_LEVEL` env var (default `info`): `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `silent`.
+- **TTY** (interactive terminal) → human-readable, colorized lines via `pino-pretty`.
+- **Piped/redirected** (no TTY) → structured NDJSON, one object per line — ideal for log files, `jq`, or a log collector.
+- `pino-pretty` is attached as a **synchronous stream** (not a worker-thread transport) so the final lines aren't lost when the daemon `process.exit()`s on shutdown. If `pino-pretty` is absent, logging falls back to NDJSON cleanly.
+
+Usage and conventions:
+
+```js
+import { logger } from './logger.js';
+logger.info('started');
+logger.warn(`degraded: ${reason}`);
+logger.error(`failed: ${err.message}`);
+```
+
+- Inside `Daemon`, the legacy `this._log(msg)` helper routes to `logger.info` (empty spacer calls are ignored); error/degraded paths call `logger.error`/`logger.warn` directly.
+- **Operational logs only.** Interactive prompts and wizard/CLI output (`src/setup.js`, the start-controls in `bin/claude-speak.js`) intentionally stay on `console.*` — they are user-facing UI, not logs.
+- Example: `LOG_LEVEL=debug node bin/claude-speak.js start` for verbose output; `node bin/claude-speak.js start | jq` for JSON logs.
 
 ## Commands
 
@@ -76,6 +99,6 @@ Create `src/narrators/yournarrator.js` with a `narrate(text)` method, then regis
 ## Tech Stack
 
 - Node.js >= 18, ES modules (`"type": "module"`)
-- `commander` for CLI, `@google-cloud/text-to-speech` (optional dep) for Google TTS
+- `commander` for CLI, `pino` + `pino-pretty` for logging, `@google-cloud/text-to-speech` (optional dep) for Google TTS
 - macOS-specific: `afplay` for playback, `say` for macOS TTS
 - No test framework, no TypeScript, no bundler
