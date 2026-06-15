@@ -42,6 +42,11 @@ export class Daemon {
     this.narrator = this.config.narrator?.enabled ? createNarrator(this.config) : null;
     this.watcher = null;
 
+    // Shutdown coordination: while stopping we stop accepting new text and wait
+    // for the in-flight synth/playback to finish so the final sentence isn't cut.
+    this._stopping = false;
+    this._inFlightSynth = new Set();
+
     // Which session to watch
     this.activeSession = options.session || null;
     this.transcriptPath = options.transcriptPath || null;
@@ -50,9 +55,13 @@ export class Daemon {
   }
 
   _setupEventHandlers() {
-    // Text processor emits sentences → synthesize and queue
+    // Text processor emits sentences → synthesize and queue. Track the in-flight
+    // synth promise so stop() can wait for the final flushed sentence to be
+    // enqueued before judging the queue drained.
     this.processor.on('sentence', ({ seq, text }) => {
-      this._synthesizeAndQueue(seq, text);
+      const p = this._synthesizeAndQueue(seq, text).catch(() => {});
+      this._inFlightSynth.add(p);
+      p.finally(() => this._inFlightSynth.delete(p));
     });
 
     // IPC fallback: handle text from hooks only when not watching a transcript.
@@ -60,6 +69,7 @@ export class Daemon {
     // huge payload into the pipeline (and on to paid cloud TTS/LLM APIs).
     const MAX_IPC_TEXT = 100 * 1024; // 100 KB of text per message
     this.ipc.on('message', (msg) => {
+      if (this._stopping) return;
       if (msg && msg.type === 'text' && typeof msg.text === 'string' && !this.watcher) {
         this.processor.feed(msg.text.slice(0, MAX_IPC_TEXT));
       }
@@ -107,6 +117,7 @@ export class Daemon {
     this.watcher = new TranscriptWatcher(transcriptPath);
 
     this.watcher.on('text', ({ text }) => {
+      if (this._stopping) return;
       this._log(`Got text (${text.length} chars): "${text.slice(0, 50)}..."`);
       this.processor.feed(text);
     });
@@ -127,6 +138,7 @@ export class Daemon {
   }
 
   switchSession(sessionId) {
+    if (this._stopping) return; // mid-shutdown: don't clear the draining queue
     this.activeSession = sessionId;
     this.audioQueue.clear();
     this.processor.reset();
@@ -139,6 +151,14 @@ export class Daemon {
         this._log(`No transcript found for session ${sessionId.slice(0, 8)}`);
       }
     } else {
+      // Tear the watcher down (not just leave it running) so the IPC/hook
+      // fallback — gated on !this.watcher — actually re-enables. Otherwise a
+      // lingering watcher would keep hook text suppressed while we claim to be
+      // "listening via hooks only".
+      if (this.watcher) {
+        this.watcher.stop();
+        this.watcher = null;
+      }
       this._log('Listening to all sessions (via hooks only)');
     }
   }
@@ -178,12 +198,61 @@ export class Daemon {
     this._log('');
   }
 
-  async stop() {
+  async stop({ drain = true, timeoutMs = 10000 } = {}) {
+    // Stop accepting new text first, then flush the final buffered sentence and
+    // let what's already queued finish playing — bounded by timeoutMs so a stuck
+    // TTS request can never hang shutdown. Previously stop() flushed the final
+    // sentence and immediately clear()ed the queue, discarding it before it
+    // could play (and cutting off whatever was mid-playback).
+    //
+    // Idempotent: a second quit signal arriving mid-drain returns immediately,
+    // so pressing q / Ctrl-C again exits now instead of starting a second drain.
+    if (this._stopping) return;
+    this._stopping = true;
+    if (this.watcher) {
+      this.watcher.stop();
+      this.watcher = null;
+    }
+
     this.processor.flush();
+    // Only drain when the queue is actually playing. A paused queue never
+    // advances (AudioQueue._drain bails while paused), so draining it would just
+    // spin to the deadline — a paused quit should exit immediately.
+    if (drain && !this.audioQueue.paused) {
+      await this._drainAudio(timeoutMs);
+    }
+
     this.audioQueue.clear();
-    if (this.watcher) this.watcher.stop();
     await this.ipc.stop();
     this._log('Stopped.');
+  }
+
+  // Wait for in-flight synthesis to enqueue and the audio queue to finish
+  // playing, capped at timeoutMs. The final flushed sentence may still be
+  // synthesizing (esp. via the narrator/cloud path), so we first wait for the
+  // tracked synth promises (bounded), then poll until the queue empties or time
+  // runs out. The poll's 50ms timers are short-lived and self-clearing, so
+  // nothing lingers past the (deadline-bounded) drain.
+  async _drainAudio(timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    await this._withTimeout(Promise.allSettled([...this._inFlightSynth]), timeoutMs);
+    while (this.audioQueue.size > 0 && Date.now() < deadline) {
+      await this._delay(50);
+    }
+  }
+
+  // Resolve when `promise` settles or after `ms`, clearing the timer either way
+  // so a fast-settling promise never leaves a long timeout armed on the loop.
+  _withTimeout(promise, ms) {
+    return new Promise((resolve) => {
+      const t = setTimeout(resolve, ms);
+      const done = () => { clearTimeout(t); resolve(); };
+      promise.then(done, done);
+    });
+  }
+
+  _delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   // Operational info logging routes through pino (see src/logger.js).

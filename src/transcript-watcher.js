@@ -23,6 +23,7 @@ export class TranscriptWatcher extends EventEmitter {
     this.offset = 0;
     this.pollTimer = null;
     this.fsWatcher = null;
+    this.stopped = false;
     this.buffer = '';
     // Boundary-safe UTF-8 decoder: holds a trailing partial multibyte sequence
     // until the next read completes it, instead of emitting U+FFFD garbage.
@@ -31,6 +32,8 @@ export class TranscriptWatcher extends EventEmitter {
   }
 
   start() {
+    this.stopped = false;
+
     // Start from the end of the file (only process new content)
     try {
       const stat = statSync(this.path);
@@ -42,6 +45,16 @@ export class TranscriptWatcher extends EventEmitter {
     // Event-driven: react immediately when the file changes.
     try {
       this.fsWatcher = watch(this.path, () => this._readNewContent());
+      // An async watcher error (file rotated/removed, descriptor limits) is
+      // emitted on the FSWatcher; with no listener Node treats it as an
+      // unhandled 'error' and crashes the daemon. Downgrade to poll-only — the
+      // safety poll already guarantees correctness.
+      this.fsWatcher.on('error', () => {
+        if (this.fsWatcher) {
+          this.fsWatcher.close();
+          this.fsWatcher = null;
+        }
+      });
     } catch {
       this.fsWatcher = null; // fall back to polling only
     }
@@ -54,6 +67,9 @@ export class TranscriptWatcher extends EventEmitter {
   }
 
   stop() {
+    // Mark stopped first so an in-flight fs.watch callback or poll tick that
+    // fires after stop() can't emit stale text into a freshly-switched session.
+    this.stopped = true;
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
@@ -65,6 +81,7 @@ export class TranscriptWatcher extends EventEmitter {
   }
 
   _readNewContent() {
+    if (this.stopped) return;
     try {
       const stat = statSync(this.path);
       // File shrank (truncated/rotated in place) — restart from the top rather

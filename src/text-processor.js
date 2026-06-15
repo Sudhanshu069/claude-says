@@ -7,7 +7,6 @@ export class TextProcessor extends EventEmitter {
     this.maxChunkLength = options.maxChunkLength || 500;
     this.flushDelay = options.flushDelay || 1500; // ms to wait before flushing incomplete buffer
     this.buffer = '';
-    this.inCodeBlock = false;
     this.seq = 0;
     this._flushTimer = null;
   }
@@ -16,18 +15,19 @@ export class TextProcessor extends EventEmitter {
     if (!text || typeof text !== 'string') return;
 
     // Strip fenced code blocks (``` ... ```), keeping only the prose OUTSIDE
-    // them. We split on ``` and walk the segments, flipping in/out of a code
-    // block at each fence. This is correct whether a block is split across
-    // feeds (the inCodeBlock flag carries state between calls) or arrives whole
-    // in a single feed — a complete block within one feed has an even number of
-    // fences, so the old "toggle then drop the whole chunk" logic spoke its body
-    // aloud. Here the in-block segments (including the opening ```js language
-    // tag) are simply omitted.
+    // them. We split on ``` and walk the segments, omitting everything inside a
+    // block (including the opening ```js language tag). Each 'text' feed from
+    // the transcript watcher is a COMPLETE assistant content block with balanced
+    // fences, so we deliberately do NOT carry the in-block state across feeds —
+    // it resets every feed. A stray or unbalanced ``` therefore only mutes the
+    // rest of THIS block, instead of the old behaviour where one odd fence
+    // flipped the flag permanently and silently swallowed every later response.
     const segments = text.split('```');
     let visible = '';
+    let inCode = false;
     for (let i = 0; i < segments.length; i++) {
-      if (!this.inCodeBlock) visible += segments[i];
-      if (i < segments.length - 1) this.inCodeBlock = !this.inCodeBlock;
+      if (!inCode) visible += segments[i];
+      if (i < segments.length - 1) inCode = !inCode;
     }
 
     // Nothing speakable in this chunk (all code/empty) — nothing to buffer.
@@ -53,7 +53,6 @@ export class TextProcessor extends EventEmitter {
   reset() {
     this._clearFlushTimer();
     this.buffer = '';
-    this.inCodeBlock = false;
     this.seq = 0;
   }
 
@@ -113,10 +112,14 @@ export class TextProcessor extends EventEmitter {
 
   _cleanForSpeech(text) {
     return text
-      // Remove markdown formatting
+      // Strip markdown emphasis. Bold (**…**) first, then single-marker italics
+      // — but only when the * or _ actually bounds a word (flanked by non-word
+      // chars / string ends). Without that guard, /_(.+?)_/ mangles snake_case
+      // identifiers ("snake_case_var" → "snakecasevar") and /\*(.+?)\*/ mangles
+      // arithmetic ("2 * 2"), both of which are common in Claude's output.
       .replace(/\*\*(.+?)\*\*/g, '$1')
-      .replace(/\*(.+?)\*/g, '$1')
-      .replace(/_(.+?)_/g, '$1')
+      .replace(/(^|\W)\*(?=\S)([^*\n]+?)(?<=\S)\*(?=\W|$)/g, '$1$2')
+      .replace(/(^|\W)_(?=\S)([^_\n]+?)(?<=\S)_(?=\W|$)/g, '$1$2')
       .replace(/`([^`]+)`/g, '$1')
       // Remove URLs
       .replace(/https?:\/\/\S+/g, '')

@@ -191,10 +191,16 @@ function setupControls(daemon) {
 
   let paused = false;
   let pendingSessions = null; // when set, the next digit picks a session to switch to
+  let quitting = false; // set once a quit is requested; ignore further control keys
 
   process.stdin.on('keypress', async (str, key) => {
     if (!key) return;
+    // Once we're shutting down, ignore every other control key. stop() awaits a
+    // bounded audio drain, and a stray p/s/digit in that window could pause or
+    // clear the very queue the drain is waiting on.
+    if (quitting) return;
     if (key.ctrl && key.name === 'c') {
+      quitting = true;
       await daemon.stop();
       process.exit(0);
     }
@@ -251,6 +257,7 @@ function setupControls(daemon) {
       }
 
       case 'q':
+        quitting = true;
         await daemon.stop();
         process.exit(0);
     }
