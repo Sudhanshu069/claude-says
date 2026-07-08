@@ -80,6 +80,16 @@ type playResult struct {
 	err   error
 }
 
+// Player renders one audio buffer to the speakers under a context. It is the
+// single seam the Queue drives for playback: production wires in *AfplayPlayer
+// (afplay), while tests inject a fake that records playback order without ever
+// touching afplay/audio. Cancelling ctx must interrupt the render and return an
+// error satisfying errors.Is(err, context.Canceled) so the queue treats it as
+// an interruption (pause/switch), not a failure.
+type Player interface {
+	Play(ctx context.Context, audio []byte, format string) error
+}
+
 // Queue is the epoch-fenced, sequence-ordered audio queue. Every field below
 // cmds/events is owned EXCLUSIVELY by Run's goroutine — no locks, no shared
 // draining bool. Exactly one playback runs at a time.
@@ -89,7 +99,7 @@ type playResult struct {
 // all final reserves are enqueued before a quiesce marker. Moving Reserve to a
 // different channel/goroutine breaks the final-sentence shutdown guarantee.
 type Queue struct {
-	player  *Player
+	player  Player
 	cmds    chan cmd
 	events  chan Event
 	done    chan struct{} // closed by Run on exit; makes senders total
@@ -102,7 +112,7 @@ type Queue struct {
 
 // NewQueue builds a Queue bound to player, with an events channel buffered to
 // eventBuf. Run must be started to consume commands.
-func NewQueue(player *Player, eventBuf int) *Queue {
+func NewQueue(player Player, eventBuf int) *Queue {
 	return &Queue{
 		player:  player,
 		cmds:    make(chan cmd),

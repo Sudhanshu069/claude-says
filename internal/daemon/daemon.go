@@ -68,7 +68,7 @@ type Daemon struct {
 	cfg          config.Config
 	processor    *textproc.Processor
 	queue        *audio.Queue
-	player       *audio.Player
+	player       *audio.AfplayPlayer
 	provider     tts.Provider
 	narrator     narrator.Narrator
 	epoch        uint64 // stamped only by the main loop

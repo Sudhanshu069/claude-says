@@ -13,13 +13,14 @@ import (
 	"path/filepath"
 )
 
-// Player runs afplay against temp files in an owner-only temp dir.
-type Player struct {
+// AfplayPlayer runs afplay against temp files in an owner-only temp dir. It is
+// the production implementation of the Player interface the Queue drives.
+type AfplayPlayer struct {
 	dir string // 0700 temp dir
 }
 
-// NewPlayer creates the 0700 temp dir and returns a Player.
-func NewPlayer() (*Player, error) {
+// NewPlayer creates the 0700 temp dir and returns an *AfplayPlayer.
+func NewPlayer() (*AfplayPlayer, error) {
 	dir := filepath.Join(os.TempDir(), "claude-says-audio")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
@@ -27,7 +28,7 @@ func NewPlayer() (*Player, error) {
 	// Tighten perms even if the dir already existed with looser bits: the temp
 	// files hold the audio of the user's session.
 	_ = os.Chmod(dir, 0o700)
-	return &Player{dir: dir}, nil
+	return &AfplayPlayer{dir: dir}, nil
 }
 
 // Play writes audio to a 0600 temp file (unpredictable name) and runs `afplay`
@@ -35,7 +36,7 @@ func NewPlayer() (*Player, error) {
 // errors.Is(err, context.Canceled) so the queue treats it as an interruption,
 // not a failure. The temp file is removed in a defer even on partial/killed
 // render.
-func (p *Player) Play(ctx context.Context, audio []byte, format string) error {
+func (p *AfplayPlayer) Play(ctx context.Context, audio []byte, format string) error {
 	// Unpredictable name (no other process can guess/enumerate it) with
 	// owner-only perms. Random names also avoid same-millisecond collisions.
 	tmp := filepath.Join(p.dir, "chunk-"+randomToken()+extForFormat(format))

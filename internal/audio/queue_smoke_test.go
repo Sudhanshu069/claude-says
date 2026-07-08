@@ -10,7 +10,7 @@ import (
 // Uses Err-results only so player.Play (afplay) is never invoked; exercises the
 // ordered drain, epoch fence, and quiesce paths for deadlock/ordering.
 func TestQueueSmoke(t *testing.T) {
-	q := NewQueue(&Player{dir: t.TempDir()}, 64)
+	q := NewQueue(&AfplayPlayer{dir: t.TempDir()}, 64)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go q.Run(ctx)
@@ -41,9 +41,10 @@ func TestQueueSmoke(t *testing.T) {
 		t.Fatalf("post-switch quiesce failed: %v", err)
 	}
 
-	// Senders must be total after Run exits.
+	// Senders must be total after Run exits. Wait deterministically for Run to
+	// close q.done rather than sleeping a fixed interval (which flaked under load).
 	cancel()
-	time.Sleep(50 * time.Millisecond)
+	waitClosed(t, q.done, 3*time.Second, "Run goroutine did not exit after ctx cancel")
 	q.Reserve(ItemID{Epoch: 1, Seq: 5}) // must not block
 	q.Deliver(SynthResult{ID: ItemID{Epoch: 1, Seq: 5}})
 	q.Pause()

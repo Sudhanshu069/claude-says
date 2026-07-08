@@ -41,6 +41,26 @@ func newMacOS(cfg *config.Config) (Provider, error) {
 	return &MacOSProvider{voice: voice, rate: rate, tmpDir: tmpDir}, nil
 }
 
+// sayArgs builds the exact argument vector passed to `say` (after the command
+// name), as a pure function so the CWE-88 end-of-options guard, voice, and rate
+// can be asserted in tests WITHOUT executing say. The layout is:
+//
+//	-v <voice> -r <rate> -o <outFile> -- <text>
+//
+// The literal "--" end-of-options marker MUST stay immediately before text so
+// attacker-influenced text beginning with a dash is spoken literally, never
+// parsed as a `say` flag (e.g. -f/path reads a file into audio, -o/path
+// clobbers).
+func sayArgs(voice string, rate int, outFile, text string) []string {
+	return []string{
+		"-v", voice,
+		"-r", strconv.Itoa(rate),
+		"-o", outFile,
+		"--",
+		text,
+	}
+}
+
 // randToken returns an unpredictable hex token for temp-file names.
 func randToken() string {
 	var b [16]byte
@@ -64,16 +84,7 @@ func (p *MacOSProvider) Synthesize(ctx context.Context, text string) ([]byte, st
 	// partial/zero-byte .aiff behind (e.g. killed mid-render on shutdown).
 	defer func() { _ = os.Remove(outFile) }()
 
-	cmd := exec.CommandContext(ctx, "say",
-		"-v", p.voice,
-		"-r", strconv.Itoa(p.rate),
-		"-o", outFile,
-		// End-of-options marker: attacker-influenced text that begins with a
-		// dash is spoken literally, never parsed as a `say` flag (CWE-88 —
-		// e.g. -f/path would read a file into audio, -o/path would clobber).
-		"--",
-		text,
-	)
+	cmd := exec.CommandContext(ctx, "say", sayArgs(p.voice, p.rate, outFile, text)...)
 	if err := cmd.Run(); err != nil {
 		return nil, FormatAIFF, fmt.Errorf("say: %w", err)
 	}
