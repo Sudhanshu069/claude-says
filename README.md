@@ -1,29 +1,39 @@
 # claude-says
 
-[![npm version](https://img.shields.io/npm/v/claude-says.svg)](https://www.npmjs.com/package/claude-says)
-[![license](https://img.shields.io/npm/l/claude-says.svg)](./LICENSE)
-[![node](https://img.shields.io/node/v/claude-says.svg)](https://nodejs.org)
-[![platform: macOS](https://img.shields.io/badge/platform-macOS-black.svg)](#requirements)
+[![Go](https://img.shields.io/badge/Go-1.26+-00ADD8.svg?logo=go&logoColor=white)](https://go.dev)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![platform: macOS](https://img.shields.io/badge/platform-macOS-black.svg?logo=apple)](#requirements)
+[![single binary](https://img.shields.io/badge/deploy-single%20binary-brightgreen.svg)](#install)
 
 Stop staring at your terminal waiting for Claude Code to finish. **claude-says** reads Claude's output aloud in real-time so you can step away, stretch, or keep working — and just listen.
 
-Built this because babysitting the screen every time Claude Code made changes got old. Now the laptop says what Claude is building.
+A single, dependency-free binary with a live TUI: watch (and hear) what Claude is building, switch sessions, and pause on a keystroke.
 
-> **macOS only** for now — playback uses `afplay` and the default voice uses the built-in `say` command.
+> **macOS only** — playback uses `afplay` and the default voice uses the built-in `say` command.
+
+> ### ⚙️ Now a Go rewrite
+> This is a ground-up **Go port** of the original Node.js project (which was no longer maintained). It ships as one static binary — no `node_modules`, no npm — with a real Bubble Tea TUI and an audio pipeline rebuilt to fix a class of ordering/race bugs the Node daemon had. See [What changed from the Node version](#what-changed-from-the-node-version).
 
 ## Install
 
+### From source (recommended)
+
 ```bash
-npm install -g claude-says
+git clone https://github.com/Sudhanshu069/claude-code-speak.git
+cd claude-code-speak
+go build -o claude-says ./cmd/claude-says
+# then move it onto your PATH, e.g.:
+sudo mv claude-says /usr/local/bin/
 ```
 
-> **Lean install (recommended):** the Google Cloud TTS provider pulls in a large optional dependency tree (~100 packages, ~15 MB). If you use the built-in macOS `say` voice (the default) or ElevenLabs, skip it:
->
-> ```bash
-> npm install -g claude-says --omit=optional
-> ```
->
-> You can add it later for Google Cloud TTS: `npm install -g @google-cloud/text-to-speech`.
+### With `go install`
+
+```bash
+go install github.com/Sudhanshu069/claude-code-speak/cmd/claude-says@latest
+# installs to $(go env GOBIN) or $(go env GOPATH)/bin — make sure that's on your PATH
+```
+
+Requires **Go 1.26+** to build. No runtime dependencies.
 
 ## Quick Start
 
@@ -31,16 +41,14 @@ npm install -g claude-says
 # 1. Setup (installs the Claude Code hook, tests audio)
 claude-says setup
 
-# 2. Start the daemon in one terminal
-claude-says
+# 2. Start in one terminal — opens the TUI
+claude-says start
 
 # 3. Use Claude Code in another terminal as normal
 claude
 ```
 
-That's it. When Claude responds, you'll hear it spoken aloud.
-
-> Just installed and the `claude-says` command isn't found / won't tab-complete? Run `rehash` (zsh) or open a new terminal — your shell is caching its command list. See [Troubleshooting](#troubleshooting).
+That's it. When Claude responds, you'll hear it spoken aloud and see it scroll in the TUI.
 
 ## Why?
 
@@ -51,7 +59,7 @@ That's it. When Claude responds, you'll hear it spoken aloud.
 ## Requirements
 
 - **macOS** (uses `afplay` for playback, `say` for the default voice)
-- **Node.js >= 18**
+- **Go 1.26+** to build (the resulting binary has no runtime deps)
 - **Claude Code CLI** installed (`claude-says setup` registers a `Stop` hook with it)
 
 ## TTS Providers
@@ -59,13 +67,11 @@ That's it. When Claude responds, you'll hear it spoken aloud.
 | Provider | Setup | Latency | Cost |
 |----------|-------|---------|------|
 | `macos` (default) | None | Lowest (local) | Free |
-| `google` | API key required | ~1–2s / sentence | Pay per use |
-| `elevenlabs` | API key required (paid plan) | ~0.5–1s | Pay per use |
+| `google` | Service-account creds | ~1–2s / sentence | Pay per use |
+| `elevenlabs` | API key (paid plan) | ~0.5–1s | Pay per use |
 
 ```bash
-# Use a specific provider
-claude-says setup --provider macos
-claude-says --provider google
+claude-says start --provider google
 ```
 
 ### macOS (default)
@@ -73,17 +79,11 @@ claude-says --provider google
 Works out of the box using the built-in `say` command. No API keys needed.
 
 ```bash
-# Pick a voice
-claude-says voices              # List English voices
-claude-says voices --all        # List all voices
-claude-says --voice "Daniel"    # Use a specific voice
-
-# Control speech rate (words per minute, default: 200)
-claude-says --rate 150          # Slower
-claude-says --rate 250          # Faster
-
-# Combine options
-claude-says --voice "Karen" --rate 150
+claude-says voices                    # List English voices
+claude-says voices --all              # List all voices
+claude-says start --voice "Daniel"    # Use a specific voice
+claude-says start --rate 150          # Slower (words per minute, default 200)
+claude-says start --voice "Karen" --rate 150
 ```
 
 ### Google Cloud TTS
@@ -102,40 +102,41 @@ claude-says setup --provider elevenlabs
 
 ## Narrator mode (optional)
 
-Instead of reading Claude's output verbatim, narrator mode runs the text through an LLM that rephrases it into a short, spoken-friendly summary before it's voiced — less "reading markdown out loud," more "a colleague telling you what just happened." Currently powered by Google Gemini.
+Instead of reading Claude's output verbatim, narrator mode runs the text through an LLM that rephrases it into a short, spoken-friendly summary before it's voiced — less "reading markdown out loud," more "a colleague telling you what just happened." Powered by Google Gemini.
 
 ```bash
 export GEMINI_API_KEY=your-key
-claude-says --narrator
+claude-says start --narrator
 ```
 
 ## Commands
 
 ```bash
-claude-says              # Start daemon (listen to all sessions)
-claude-says -l           # Pick a session interactively
-claude-says -s <id>      # Listen to a specific session
-claude-says -p <name>    # Use a specific TTS provider
-claude-says --narrator   # Enable LLM narrator mode (summarizes output)
-claude-says --voice "Daniel"  # Use a specific macOS voice
-claude-says --rate 150   # Adjust speech rate (words per minute)
-claude-says setup        # Configure provider and install hook
-claude-says sessions     # List Claude Code sessions
-claude-says providers    # List available TTS providers
-claude-says voices       # List available macOS voices
+claude-says start              # Start the daemon + TUI (auto-detects most recent session)
+claude-says start -l           # Pick a session interactively
+claude-says start -s <id>      # Listen to a specific session
+claude-says start -p <name>    # Use a specific TTS provider
+claude-says start --narrator   # Enable LLM narrator mode
+claude-says start --voice "Daniel"
+claude-says start --rate 150
+claude-says setup              # Configure provider and install the Stop hook
+claude-says sessions           # List Claude Code sessions
+claude-says providers          # List available TTS providers
+claude-says voices             # List available macOS voices
+claude-says --version
 ```
 
-## Controls (while the daemon is running)
+## Controls (in the TUI)
 
 | Key | Action |
 |-----|--------|
 | `p` | Pause / Resume |
 | `s` | Switch session |
-| `q` | Quit |
+| `q` | Quit (drains the current sentence, then exits) |
 
 ## Configuration
 
-Settings live in `~/.claude-says/config.json` and are merged over the defaults. You only need to include the keys you want to change.
+Settings live in `~/.claude-says/config.json` (owner-only, `0600`) and are merged over the defaults — you only need the keys you want to change. CLI flags override the file for that run.
 
 ```json
 {
@@ -151,7 +152,8 @@ Settings live in `~/.claude-says/config.json` and are merged over the defaults. 
     "voiceId": "21m00Tcm4TlvDq8ikWAM",
     "modelId": "eleven_turbo_v2_5"
   },
-  "textProcessor": { "minChunkLength": 10, "maxChunkLength": 500 },
+  "playback": { "method": "afplay" },
+  "textProcessor": { "minChunkLength": 10, "maxChunkLength": 500, "flushDelay": 1500 },
   "narrator": {
     "enabled": false,
     "provider": "gemini",
@@ -160,56 +162,58 @@ Settings live in `~/.claude-says/config.json` and are merged over the defaults. 
 }
 ```
 
-CLI flags (`--voice`, `--rate`, `--provider`, `--narrator`) override the config file for that run.
-
 ## How It Works
 
 1. A `Stop` hook in Claude Code fires after each response.
-2. The hook reads the session transcript and extracts the new assistant text.
-3. Text reaches the `claude-says` daemon — either directly (the daemon watches the transcript file) or via Unix-socket IPC from the hook.
-4. The daemon splits text into sentences, strips markdown/code/URL noise, optionally rephrases it via the narrator, synthesizes audio via the TTS provider, and plays it through a sequence-ordered queue.
+2. `claude-says` gets the new assistant text one of two ways: the daemon **watches the session transcript** directly (fsnotify + a safety poll) for the lowest latency, or the hook forwards it over a **Unix-domain socket** as a fallback.
+3. The text processor splits it into sentences, strips markdown/code/URL noise, and (optionally) rephrases it through the narrator.
+4. Each sentence is synthesized by the TTS provider and played in strict order by an **epoch-fenced audio queue**, so out-of-order synth results never play out of sequence — and switching sessions can never bleed the old session's audio into the new one.
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design.
 
-## Troubleshooting
+## Project layout
 
-- **`claude-says: command not found` right after install, or no tab-completion** — your shell cached its command list. Run `rehash` (zsh) / `hash -r` (bash), or open a new terminal. Confirm it's installed with `claude-says --version`.
-- **Nothing is spoken** — make sure the daemon is running (`claude-says`) *and* that `claude-says setup` installed the Stop hook. Test audio with `claude-says voices`.
-- **Stray `node_modules` / `package.json` in your home folder** — that comes from running `npm install <pkg>` (without `-g`) while `cd`'d into `~`. Always install global CLIs with `npm install -g`, and never run a bare `npm install` from your home directory.
+```
+cmd/claude-says/     CLI (Cobra) + the Stop-hook entry point
+internal/config      ~/.claude-says/config.json (0600, atomic writes)
+internal/logx        structured logging (slog: pretty on a TTY, JSON when piped)
+internal/session     Claude Code session discovery under ~/.claude/projects
+internal/transcript  transcript watcher (fsnotify + safety poll, UUID dedup)
+internal/textproc    sentence chunking + markdown/URL/code cleaning
+internal/audio       epoch-fenced ordered queue + afplay player
+internal/ipc         Unix-domain-socket IPC (hook → daemon)
+internal/tts         provider interface + macos / google / elevenlabs
+internal/narrator    LLM narrator interface + gemini
+internal/daemon      orchestrator (context-cancellable pipeline)
+internal/tui         Bubble Tea TUI
+```
+
+## What changed from the Node version
+
+The Go rewrite keeps the feature set but rebuilds the internals to fix bugs the Node daemon shipped with:
+
+- **No cross-session audio bleed / no CPU-hang / no stranded sentences.** The audio queue is *epoch-fenced*: every session reset bumps a generation counter, and a single drain goroutine plays strictly in order. Stale in-flight results are dropped instead of overwriting the new session's slot — the root cause of the Node audio-queue bug cluster.
+- **Bounded network calls.** Every Google/ElevenLabs/Gemini request has a context deadline; a hung provider can no longer stall the pipeline.
+- **Failures are visible and survivable.** A provider error degrades a single sentence and is logged; it never kills the daemon.
+- **A real TUI** — live spoken-text log with queue/epoch/playing counters — instead of the raw-mode keypress handler.
+- **One binary.** No `node_modules`, no npm, no optional-dependency install dance.
 
 ## Extending
 
-### Adding a TTS provider
+### Add a TTS provider
 
-Create `src/providers/yourprovider.js` extending `BaseTTSProvider`:
+Implement the `Provider` interface in `internal/tts` (`Synthesize(ctx, text) ([]byte, format, error)` and `Validate(ctx) error`) and register it in `internal/tts/tts.go`.
 
-```js
-import { BaseTTSProvider } from './base.js';
+### Add a narrator
 
-export class YourProvider extends BaseTTSProvider {
-  async synthesize(text) {
-    // Convert text to an audio buffer
-    return { audio: buffer, format: 'mp3' };
-  }
-
-  async validate() {
-    return { ok: true };
-  }
-}
-```
-
-Register it in `src/tts.js`.
-
-### Adding a narrator
-
-Create `src/narrators/yournarrator.js` with a `narrate(text)` method, then register it in `src/narrator.js`.
+Implement the `Narrator` interface in `internal/narrator` (`Narrate(ctx, text) string` — total, never errors) and register it in `internal/narrator/narrator.go`.
 
 ## Maintainers
 
-- **Abhishek Raj** ([@abhishek141001](https://github.com/abhishek141001)) — original author
-- **Sudhanshu Singh** ([@Sudhanshu069](https://github.com/Sudhanshu069)) — maintainer
+- **Sudhanshu Singh** ([@Sudhanshu069](https://github.com/Sudhanshu069)) — maintainer of this Go rewrite
+- **Abhishek Raj** ([@abhishek141001](https://github.com/abhishek141001)) — original author of the Node.js version
 
-Issues and PRs welcome at [github.com/abhishek141001/claude-says](https://github.com/abhishek141001/claude-says).
+Issues and PRs welcome at [github.com/Sudhanshu069/claude-code-speak](https://github.com/Sudhanshu069/claude-code-speak).
 
 ## License
 
