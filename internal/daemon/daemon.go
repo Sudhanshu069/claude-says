@@ -413,8 +413,12 @@ func (d *Daemon) stopWatcher() {
 func (d *Daemon) forwardQueueEvent(qe audio.Event) {
 	switch qe.Kind {
 	case audio.EventPlaying:
+		// Debug-level so a headless run (no TUI) can still observe playback
+		// progress — mirrors Node's "Playing #N". Info stays quiet for normal use.
+		slog.Debug("playing", "seq", int(qe.Seq), "queue", qe.QueueSize)
 		d.emit(tui.Event{Kind: tui.EventPlaying, Epoch: d.epoch, Seq: int(qe.Seq), Queue: qe.QueueSize, Time: time.Now()})
 	case audio.EventDrained:
+		slog.Debug("drained", "queue", qe.QueueSize)
 		d.emit(tui.Event{Kind: tui.EventDrained, Epoch: d.epoch, Queue: qe.QueueSize, Time: time.Now()})
 	case audio.EventError:
 		// A hard failure (afplay error, or a synth error surfaced by the queue).
