@@ -68,7 +68,7 @@ type Daemon struct {
 	cfg          config.Config
 	processor    *textproc.Processor
 	queue        *audio.Queue
-	player       *audio.AfplayPlayer
+	player       audio.Player
 	provider     tts.Provider
 	narrator     narrator.Narrator
 	epoch        uint64 // stamped only by the main loop
@@ -99,26 +99,14 @@ type Daemon struct {
 	initialTranscriptPath string
 }
 
-// New builds a Daemon from cfg and opts, constructing the provider, optional
-// narrator, player, queue, and processor.
+// New builds a Daemon from cfg and opts, constructing the real provider,
+// optional narrator, and afplay player, then delegating to newWithDeps to wire
+// the queue and processor. Tests construct a Daemon via newWithDeps with fakes.
 func New(cfg config.Config, opts Options) (*Daemon, error) {
 	if opts.Provider != "" {
 		cfg.Provider = opts.Provider
 	}
 	narratorOn := cfg.Narrator.Enabled || opts.NarratorOn
-
-	synthTimeout := opts.SynthTimeout
-	if synthTimeout == 0 {
-		synthTimeout = DefaultSynthTimeout
-	}
-	flushDelay := opts.FlushDelay
-	if flushDelay == 0 {
-		if cfg.TextProcessor.FlushDelay > 0 {
-			flushDelay = time.Duration(cfg.TextProcessor.FlushDelay) * time.Millisecond
-		} else {
-			flushDelay = DefaultFlushDelay
-		}
-	}
 
 	provider, err := tts.New(&cfg)
 	if err != nil {
@@ -136,6 +124,28 @@ func New(cfg config.Config, opts Options) (*Daemon, error) {
 	player, err := audio.NewPlayer()
 	if err != nil {
 		return nil, err
+	}
+
+	return newWithDeps(cfg, opts, provider, player, narr)
+}
+
+// newWithDeps wires a Daemon from already-constructed dependencies. It is the
+// test seam: package tests inject a fake provider (tts.Provider), player
+// (audio.Player), and narrator (narrator.Narrator, or nil) without touching
+// afplay/network/config side effects. New builds the real deps and delegates
+// here, so both paths share identical wiring. narr may be nil (no narrator).
+func newWithDeps(cfg config.Config, opts Options, provider tts.Provider, player audio.Player, narr narrator.Narrator) (*Daemon, error) {
+	synthTimeout := opts.SynthTimeout
+	if synthTimeout == 0 {
+		synthTimeout = DefaultSynthTimeout
+	}
+	flushDelay := opts.FlushDelay
+	if flushDelay == 0 {
+		if cfg.TextProcessor.FlushDelay > 0 {
+			flushDelay = time.Duration(cfg.TextProcessor.FlushDelay) * time.Millisecond
+		} else {
+			flushDelay = DefaultFlushDelay
+		}
 	}
 
 	queue := audio.NewQueue(player, eventBuf)
