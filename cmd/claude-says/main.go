@@ -270,7 +270,7 @@ func runStart(cmd *cobra.Command, o *startOptions) error {
 	// EventText), the header queue=/epoch=/playing counters follow its queue
 	// events, and p/s/q keys flow into the daemon loop (the sole owner of
 	// epoch/seq stamping). No second watcher, no mirror.
-	sessions, _ := session.Discover()
+	sessions, _ := session.DiscoverWithTitles()
 	m := tui.New(cfg, d.Events(), d.Controls(), sessions)
 	runErr := tui.Run(ctx, m)
 
@@ -414,9 +414,10 @@ func printProviderHelp(provider string) {
 	}
 }
 
-// runSessions prints discovered sessions, most-recent-first (Node parity).
+// runSessions prints discovered sessions, most-recent-first, each labelled with
+// its session name (ai-title / first prompt) over a project + id + age line.
 func runSessions() error {
-	sessions, err := session.Discover()
+	sessions, err := session.DiscoverWithTitles()
 	if err != nil {
 		return err
 	}
@@ -431,10 +432,19 @@ func runSessions() error {
 		limit = 20
 	}
 	for _, s := range sessions[:limit] {
-		fmt.Printf("  %s  %s  (%s)\n", shortID(s.ID), s.ProjectName, formatAge(s.LastActive))
+		fmt.Printf("  %s\n      %s  %s  (%s)\n", sessionName(s), shortID(s.ID), filepath.Base(s.ProjectName), formatAge(s.LastActive))
 	}
 	fmt.Printf("\nTotal: %d sessions\n", len(sessions))
 	return nil
+}
+
+// sessionName is the human label for a session: its Title (ai-title / first
+// prompt), falling back to the project basename when a transcript has neither.
+func sessionName(s session.Info) string {
+	if s.Title != "" {
+		return s.Title
+	}
+	return filepath.Base(s.ProjectName)
 }
 
 // runProviders prints the registered TTS providers.
@@ -757,7 +767,7 @@ func groupContains(group any, substr string) bool {
 // stdin, mirroring the Node --list picker. all=true means "listen to all
 // sessions"; ok=false with all=false means the user cancelled.
 func pickSessionInteractive() (picked session.Info, all bool, ok bool) {
-	sessions, err := session.Discover()
+	sessions, err := session.DiscoverWithTitles()
 	if err != nil || len(sessions) == 0 {
 		fmt.Println("No sessions found.")
 		return session.Info{}, false, false
@@ -771,7 +781,7 @@ func pickSessionInteractive() (picked session.Info, all bool, ok bool) {
 	}
 	display := sessions[:limit]
 	for i, s := range display {
-		fmt.Printf("  %d. %s  %s  (%s)\n", i+1, shortID(s.ID), s.ProjectName, formatAge(s.LastActive))
+		fmt.Printf("  %d. %s\n       %s  %s  (%s)\n", i+1, sessionName(s), shortID(s.ID), filepath.Base(s.ProjectName), formatAge(s.LastActive))
 	}
 	fmt.Println("  0. Listen to all sessions")
 	fmt.Println()

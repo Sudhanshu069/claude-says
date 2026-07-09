@@ -5,6 +5,7 @@ package session
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"io"
 	"os"
@@ -26,6 +27,7 @@ type Session struct {
 	ProjectName    string    // real cwd if recoverable, else decoded ProjectDir
 	TranscriptPath string    // absolute path to <id>.jsonl
 	LastActive     time.Time // file mtime
+	Title          string    // human label (most recent ai-title, else first prompt); populated by DiscoverWithTitles
 }
 
 // uuidRe matches a canonical UUID, mirroring the Node isUUID regex.
@@ -205,4 +207,147 @@ func decodeProjectDir(dir string) string {
 		dir = "/" + dir[1:]
 	}
 	return strings.ReplaceAll(dir, "-", "/")
+}
+
+// titleTailLimit bounds how much of a transcript's tail readAITitle scans.
+const titleTailLimit = 128 * 1024
+
+// DiscoverWithTitles is Discover plus a human Title per session (its most recent
+// ai-title, else first prompt). Display surfaces (the switcher, `sessions`) use
+// it; the hot paths (MostRecent/FindTranscript) stay on the cheaper Discover.
+func DiscoverWithTitles() ([]Session, error) {
+	sessions, err := Discover()
+	if err != nil {
+		return nil, err
+	}
+	for i := range sessions {
+		sessions[i].Title = ReadTitle(sessions[i].TranscriptPath)
+	}
+	return sessions, nil
+}
+
+// ReadTitle returns a human label for a transcript: the most recent Claude Code
+// "ai-title" record, else the first user prompt (one line), else "". It reads
+// only the file's tail for the title and, on fallback, a bounded head — never
+// the whole file.
+func ReadTitle(transcriptPath string) string {
+	if t := readAITitle(transcriptPath); t != "" {
+		return t
+	}
+	return readFirstPrompt(transcriptPath)
+}
+
+// readAITitle scans the transcript's tail for the last "ai-title" record's title.
+// Titles are regenerated through a session, so the last one is the current one.
+func readAITitle(transcriptPath string) string {
+	f, err := os.Open(transcriptPath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		return ""
+	}
+	if start := fi.Size() - titleTailLimit; start > 0 {
+		if _, err := f.Seek(start, io.SeekStart); err != nil {
+			return ""
+		}
+	}
+	buf, err := io.ReadAll(f)
+	if err != nil {
+		return ""
+	}
+
+	lines := bytes.Split(buf, []byte{'\n'})
+	// Scan from the end; the first ai-title found is the most recent.
+	for i := len(lines) - 1; i >= 0; i-- {
+		if !bytes.Contains(lines[i], []byte(`"ai-title"`)) {
+			continue
+		}
+		var rec struct {
+			AITitle string `json:"aiTitle"`
+		}
+		if json.Unmarshal(lines[i], &rec) == nil && rec.AITitle != "" {
+			return strings.TrimSpace(rec.AITitle)
+		}
+	}
+	return ""
+}
+
+// readFirstPrompt returns the first user prompt in the transcript as a single
+// trimmed line, skipping command/tool-injected content, or "".
+func readFirstPrompt(transcriptPath string) string {
+	f, err := os.Open(transcriptPath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	for sc.Scan() {
+		line := sc.Bytes()
+		if !bytes.Contains(line, []byte(`"type":"user"`)) {
+			continue
+		}
+		var rec struct {
+			Message struct {
+				Content json.RawMessage `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal(line, &rec) != nil {
+			continue
+		}
+		text := oneLine(firstText(rec.Message.Content))
+		// Skip slash-command / tool-result envelopes (e.g. "<command-name>...").
+		if text == "" || strings.HasPrefix(text, "<") {
+			continue
+		}
+		return truncate(text, 72)
+	}
+	return ""
+}
+
+// truncate shortens s to at most n runes, appending an ellipsis when it cuts.
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return strings.TrimRight(string(r[:n]), " ") + "…"
+}
+
+// firstText extracts human text from a user message's content, which is either a
+// JSON string or an array of {type:"text",text:"..."} blocks.
+func firstText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &blocks) == nil {
+		for _, b := range blocks {
+			if b.Type == "text" && b.Text != "" {
+				return b.Text
+			}
+		}
+	}
+	return ""
+}
+
+// oneLine trims s to its first non-empty line.
+func oneLine(s string) string {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	return strings.TrimSpace(s)
 }

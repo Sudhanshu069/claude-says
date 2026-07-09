@@ -9,6 +9,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -160,15 +161,21 @@ func pickerItems(sessions []session.Info) []list.Item {
 		desc:  "Listen to every session via the Stop hook",
 	})
 	for _, s := range sessions {
-		id := s.ID
-		short := id
+		short := s.ID
 		if len(short) > 8 {
 			short = short[:8]
 		}
+		proj := filepath.Base(s.ProjectName)
+		// Primary label is the session's name (its ai-title, else first prompt);
+		// fall back to the project when a transcript has neither.
+		title := s.Title
+		if title == "" {
+			title = proj
+		}
 		items = append(items, pickerItem{
-			id:    id,
-			title: short + "  " + s.ProjectName,
-			desc:  ageString(s.LastActive),
+			id:    s.ID,
+			title: title,
+			desc:  proj + "  ·  " + ageString(s.LastActive) + "  ·  " + short,
 		})
 	}
 	return items
@@ -246,9 +253,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "s":
 		// Re-run discovery so the picker reflects sessions created/updated since
-		// startup, with refreshed ages (Node re-listed on every press). Discovery
-		// is a quick directory scan; on error we keep the last known list.
-		if fresh, err := session.Discover(); err == nil {
+		// startup, with refreshed names and ages. On error we keep the last list.
+		if fresh, err := session.DiscoverWithTitles(); err == nil {
 			m.sessions = fresh
 		}
 		m.picking = true
