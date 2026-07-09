@@ -78,6 +78,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		newStartCmd(),
 		newSetupCmd(),
+		newUninstallCmd(),
 		newSessionsCmd(),
 		newProvidersCmd(),
 		newVoicesCmd(),
@@ -588,6 +589,145 @@ func installHook() bool {
 		return false
 	}
 	return true
+}
+
+// newUninstallCmd removes the Claude Code Stop hook and the ~/.claude-says config
+// dir, reversing `setup`. It does not delete the binary itself (a running program
+// can't reliably remove itself) — it prints the path to remove.
+func newUninstallCmd() *cobra.Command {
+	var keepConfig bool
+	cmd := &cobra.Command{
+		Use:           "uninstall",
+		Short:         "Remove the Claude Code hook and config (reverse of setup)",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runUninstall(keepConfig)
+		},
+	}
+	cmd.Flags().BoolVar(&keepConfig, "keep-config", false, "Keep ~/.claude-says (config + socket)")
+	return cmd
+}
+
+func runUninstall(keepConfig bool) error {
+	fmt.Println("claude-says — Uninstall")
+	fmt.Println()
+
+	// 1. Remove the Stop hook from ~/.claude/settings.json.
+	switch removed, err := removeHook(); {
+	case err != nil:
+		fmt.Printf("  ! Could not update the Stop hook: %v\n", err)
+	case removed:
+		fmt.Println("  ✓ Removed the claude-says Stop hook from ~/.claude/settings.json")
+	default:
+		fmt.Println("  · No claude-says Stop hook found")
+	}
+
+	// 2. Remove ~/.claude-says (config.json + socket), unless kept.
+	switch {
+	case keepConfig:
+		fmt.Println("  · Kept ~/.claude-says (--keep-config)")
+	default:
+		if dir, err := config.ConfigDir(); err != nil {
+			fmt.Printf("  ! Could not resolve the config dir: %v\n", err)
+		} else if _, err := os.Stat(dir); os.IsNotExist(err) {
+			fmt.Println("  · No ~/.claude-says directory")
+		} else if err := os.RemoveAll(dir); err != nil {
+			fmt.Printf("  ! Could not remove %s: %v\n", dir, err)
+		} else {
+			fmt.Printf("  ✓ Removed %s (config + socket)\n", dir)
+		}
+	}
+
+	// 3. Point at the binary — a running program can't cleanly delete itself.
+	if exe, err := os.Executable(); err == nil {
+		if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
+			exe = resolved
+		}
+		fmt.Printf("\n  To remove the binary:  rm %s\n", exe)
+	}
+	fmt.Println("\nDone. If the daemon is still running, quit it (press q in the TUI, or kill the process).")
+	return nil
+}
+
+// removeHook deletes claude-says's Stop-hook group(s) from ~/.claude/settings.json,
+// preserving every other setting and hook, and writes the result atomically. It is
+// the inverse of installHook. Returns removed=true iff a matching group was found.
+// A missing settings file (or no matching hook) is a no-op returning (false, nil).
+func removeHook() (bool, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false, err
+	}
+	settingsFile := filepath.Join(home, ".claude", "settings.json")
+
+	data, err := os.ReadFile(settingsFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	settings := map[string]any{}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return false, fmt.Errorf("settings.json is not valid JSON: %w", err)
+	}
+
+	hooks, _ := settings["hooks"].(map[string]any)
+	if hooks == nil {
+		return false, nil
+	}
+	existing, _ := hooks["Stop"].([]any)
+
+	exe, _ := os.Executable()
+	if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
+		exe = resolved
+	}
+
+	var kept []any
+	removed := false
+	for _, g := range existing {
+		// Match any claude-says hook regardless of install path — installHook
+		// writes a quoted path to the `claude-says` binary followed by ` hook` —
+		// plus the current exe and the stale Node hook names.
+		if groupContains(g, `claude-says" hook`) ||
+			groupContains(g, "claude-says-hook.js") ||
+			groupContains(g, "claude-speak-hook") ||
+			(exe != "" && groupContains(g, exe)) {
+			removed = true
+			continue
+		}
+		kept = append(kept, g)
+	}
+	if !removed {
+		return false, nil
+	}
+
+	// Tidy up: drop an empty Stop list and an empty hooks object.
+	if len(kept) == 0 {
+		delete(hooks, "Stop")
+	} else {
+		hooks["Stop"] = kept
+	}
+	if len(hooks) == 0 {
+		delete(settings, "hooks")
+	} else {
+		settings["hooks"] = hooks
+	}
+
+	out, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return false, err
+	}
+	tmp := settingsFile + ".tmp"
+	if err := os.WriteFile(tmp, out, 0o644); err != nil {
+		return false, err
+	}
+	if err := os.Rename(tmp, settingsFile); err != nil {
+		os.Remove(tmp)
+		return false, err
+	}
+	return true, nil
 }
 
 // groupContains reports whether any command string in a Stop-hook group contains

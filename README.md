@@ -17,18 +17,27 @@ A single, dependency-free binary with a live TUI: watch (and hear) what Claude i
 
 ## Install
 
-### Download a release (recommended)
-
-Grab the macOS build for your chip from the [latest release](https://github.com/Sudhanshu069/claude-says/releases/latest) — one static binary, no runtime dependencies:
+### One-liner (recommended)
 
 ```bash
-# Apple Silicon (arm64) — for Intel, swap arm64 → amd64:
-curl -L https://github.com/Sudhanshu069/claude-says/releases/download/v2.0.0/claude-says_2.0.0_darwin_arm64.tar.gz | tar -xz
-sudo mv claude-says /usr/local/bin/
-claude-says --version   # → claude-says version 2.0.0
+curl -fsSL https://raw.githubusercontent.com/Sudhanshu069/claude-says/main/install.sh | sh
 ```
 
-Every release ships a `checksums.txt` (SHA-256) alongside the archives if you want to verify the download.
+Detects your chip, downloads the latest macOS release, **verifies its SHA-256 checksum**, and installs `claude-says` to `/usr/local/bin` (override with `BINDIR=…`). Then run `claude-says setup`.
+
+<details>
+<summary>…or download a release manually</summary>
+
+Grab `claude-says_<version>_darwin_arm64.tar.gz` (or `_amd64`) from the [latest release](https://github.com/Sudhanshu069/claude-says/releases/latest) — one static binary, no runtime dependencies — then:
+
+```bash
+tar -xzf claude-says_*_darwin_arm64.tar.gz
+sudo mv claude-says /usr/local/bin/
+claude-says --version
+```
+
+Each release ships a `checksums.txt` (SHA-256) to verify against.
+</details>
 
 ### With `go install`
 
@@ -47,6 +56,21 @@ sudo mv claude-says /usr/local/bin/
 ```
 
 Building requires **Go 1.26+**; the resulting binary has no runtime dependencies.
+
+## Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Sudhanshu069/claude-says/main/uninstall.sh | sh
+```
+
+Or, if you already have the binary:
+
+```bash
+claude-says uninstall     # removes the Claude Code Stop hook + ~/.claude-says
+rm "$(command -v claude-says)"   # then remove the binary
+```
+
+`claude-says uninstall` reverses `setup`: it strips the claude-says Stop hook from `~/.claude/settings.json` (leaving your other settings and hooks untouched) and deletes `~/.claude-says` (config + socket). Pass `--keep-config` to keep your settings.
 
 ## Quick Start
 
