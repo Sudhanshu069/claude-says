@@ -1,5 +1,6 @@
 # claude-says
 
+[![release](https://img.shields.io/github/v/release/Sudhanshu069/claude-says?logo=github&color=success)](https://github.com/Sudhanshu069/claude-says/releases/latest)
 [![Go](https://img.shields.io/badge/Go-1.26+-00ADD8.svg?logo=go&logoColor=white)](https://go.dev)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![platform: macOS](https://img.shields.io/badge/platform-macOS-black.svg?logo=apple)](#requirements)
@@ -16,15 +17,18 @@ A single, dependency-free binary with a live TUI: watch (and hear) what Claude i
 
 ## Install
 
-### From source (recommended)
+### Download a release (recommended)
+
+Grab the macOS build for your chip from the [latest release](https://github.com/Sudhanshu069/claude-says/releases/latest) — one static binary, no runtime dependencies:
 
 ```bash
-git clone https://github.com/Sudhanshu069/claude-says.git
-cd claude-code-speak
-go build -o claude-says ./cmd/claude-says
-# then move it onto your PATH, e.g.:
+# Apple Silicon (arm64) — for Intel, swap arm64 → amd64:
+curl -L https://github.com/Sudhanshu069/claude-says/releases/download/v2.0.0/claude-says_2.0.0_darwin_arm64.tar.gz | tar -xz
 sudo mv claude-says /usr/local/bin/
+claude-says --version   # → claude-says version 2.0.0
 ```
+
+Every release ships a `checksums.txt` (SHA-256) alongside the archives if you want to verify the download.
 
 ### With `go install`
 
@@ -33,7 +37,16 @@ go install github.com/Sudhanshu069/claude-says/cmd/claude-says@latest
 # installs to $(go env GOBIN) or $(go env GOPATH)/bin — make sure that's on your PATH
 ```
 
-Requires **Go 1.26+** to build. No runtime dependencies.
+### From source
+
+```bash
+git clone https://github.com/Sudhanshu069/claude-says.git
+cd claude-says
+go build -o claude-says ./cmd/claude-says
+sudo mv claude-says /usr/local/bin/
+```
+
+Building requires **Go 1.26+**; the resulting binary has no runtime dependencies.
 
 ## Quick Start
 
