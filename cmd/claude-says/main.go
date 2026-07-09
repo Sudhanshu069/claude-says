@@ -75,6 +75,7 @@ func newRootCmd() *cobra.Command {
 		},
 	}
 	bindStartFlags(root.Flags(), opts)
+	registerStartCompletions(root)
 	root.AddCommand(
 		newStartCmd(),
 		newSetupCmd(),
@@ -100,6 +101,7 @@ func newStartCmd() *cobra.Command {
 		},
 	}
 	bindStartFlags(cmd.Flags(), opts)
+	registerStartCompletions(cmd)
 	return cmd
 }
 
@@ -116,6 +118,7 @@ func newSetupCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&provider, "provider", "p", "", "TTS provider")
+	_ = cmd.RegisterFlagCompletionFunc("provider", completeProvider)
 	return cmd
 }
 
@@ -188,6 +191,55 @@ func bindStartFlags(fs *pflag.FlagSet, o *startOptions) {
 	fs.StringVarP(&o.Voice, "voice", "v", "", "macOS voice name")
 	fs.BoolVarP(&o.Narrator, "narrator", "n", false, "Enable narrator mode")
 	fs.StringVar(&o.NarratorProvider, "narrator-provider", "", "Narrator LLM provider (default: gemini)")
+}
+
+// registerStartCompletions wires shell tab-completion for the start flags:
+// `--voice <TAB>` cycles macOS voices, `--provider <TAB>` the TTS providers.
+func registerStartCompletions(cmd *cobra.Command) {
+	_ = cmd.RegisterFlagCompletionFunc("voice", completeVoice)
+	_ = cmd.RegisterFlagCompletionFunc("provider", completeProvider)
+}
+
+// completeVoice offers the installed macOS `say` voices for --voice completion,
+// each tagged with its language as the completion description, prefix-filtered by
+// what the user has typed (case-insensitive) so a name like Gr narrows to
+// Grandma/Grandpa across every shell rather than relying on shell-side matching.
+func completeVoice(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	cfg := config.DefaultConfig()
+	cfg.Provider = "macos"
+	prov, err := tts.New(&cfg)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	lister, ok := prov.(tts.VoiceLister)
+	if !ok {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	voices, err := lister.Voices(ctx)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	// English voices only — matching the `voices` command default — so cycling
+	// isn't flooded with the same name in a dozen languages. Non-English voices
+	// remain settable manually (`--voice "Anna"`) and via `voices --all`.
+	prefix := strings.ToLower(toComplete)
+	comps := make([]string, 0, len(voices))
+	for _, v := range voices {
+		if !strings.HasPrefix(strings.ToLower(v.Language), "en") {
+			continue
+		}
+		if prefix == "" || strings.HasPrefix(strings.ToLower(v.Name), prefix) {
+			comps = append(comps, v.Name+"\t"+v.Language)
+		}
+	}
+	return comps, cobra.ShellCompDirectiveNoFileComp
+}
+
+// completeProvider offers the registered TTS providers for --provider completion.
+func completeProvider(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+	return tts.List(), cobra.ShellCompDirectiveNoFileComp
 }
 
 // applyOverrides layers CLI flags onto a loaded config, mirroring the Node

@@ -168,8 +168,27 @@ claude-says --version
 | Key | Action |
 |-----|--------|
 | `p` | Pause / Resume |
-| `s` | Switch session |
+| `s` | Switch session (shows each session by name) |
 | `q` | Quit (drains the current sentence, then exits) |
+
+## Shell completion
+
+Tab-complete `--voice` (cycles the English macOS voices) and `--provider`:
+
+```bash
+# zsh — write the completion into your fpath, then restart the shell:
+mkdir -p ~/.zfunc && claude-says completion zsh > ~/.zfunc/_claude-says
+# ensure ~/.zfunc is on fpath before compinit in ~/.zshrc:
+#   fpath=(~/.zfunc $fpath); autoload -U compinit && compinit
+
+# bash:
+claude-says completion bash | sudo tee /usr/local/etc/bash_completion.d/claude-says >/dev/null
+
+# fish:
+claude-says completion fish > ~/.config/fish/completions/claude-says.fish
+```
+
+Then: `claude-says --voice <Tab>` cycles Daniel, Grandma, Karen, Samantha, …
 
 ## Configuration
 
