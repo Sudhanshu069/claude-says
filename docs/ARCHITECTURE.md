@@ -4,10 +4,9 @@ A real-time text-to-speech companion for the Claude Code CLI. It watches Claude
 Code's session transcript and speaks new assistant output aloud, optionally
 rephrasing it through an LLM "narrator" first.
 
-This describes the **Go implementation** (a single static binary,
-`github.com/Sudhanshu069/claude-says`). The original Node.js version under
-`bin/`/`src/` is retained for reference only; the Go source under `cmd/` and
-`internal/` is authoritative.
+This describes the **Go implementation** — a single static binary
+(`github.com/Sudhanshu069/claude-says`). The original Node.js version has been
+removed; see the git history before the Go port if you need it for reference.
 
 > Related: [CODE_REVIEW.md](CODE_REVIEW.md) and [SECURITY_AUDIT.md](SECURITY_AUDIT.md)
 > document the *Node* version's defects — the ones this rewrite fixes by design
