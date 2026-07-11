@@ -8,9 +8,20 @@
 set -eu
 
 REPO="Sudhanshu069/claude-says"
-BINDIR="${BINDIR:-/usr/local/bin}"
 
 fail() { echo "error: $*" >&2; exit 1; }
+
+# Install dir: honor an explicit $BINDIR; otherwise prefer /usr/local/bin only
+# when it's actually writable (Intel Macs / classic Homebrew), and fall back to
+# ~/.local/bin so a normal single-user install needs NO sudo — on Apple Silicon
+# /usr/local is root-owned and forcing sudo for a plain CLI is just annoying.
+if [ -z "${BINDIR:-}" ]; then
+  if [ -w /usr/local/bin ]; then
+    BINDIR="/usr/local/bin"
+  else
+    BINDIR="${HOME}/.local/bin"
+  fi
+fi
 
 [ "$(uname -s)" = "Darwin" ] || fail "claude-says is macOS-only for now (got $(uname -s))."
 command -v curl >/dev/null 2>&1 || fail "curl is required."
@@ -49,11 +60,23 @@ tar -xzf "${tmp}/${asset}" -C "${tmp}" || fail "extract failed."
 chmod +x "${tmp}/claude-says"
 
 echo "Installing to ${BINDIR} ..."
+mkdir -p "${BINDIR}" 2>/dev/null || true
 if [ -w "${BINDIR}" ] || [ "$(id -u)" = "0" ]; then
   mv "${tmp}/claude-says" "${BINDIR}/claude-says"
 else
+  echo "  (${BINDIR} needs elevated permissions — using sudo)"
   sudo mv "${tmp}/claude-says" "${BINDIR}/claude-says"
 fi
+
+# Warn if the chosen dir isn't on PATH, so `claude-says` is actually found.
+case ":${PATH}:" in
+  *":${BINDIR}:"*) ;;
+  *)
+    echo ""
+    echo "note: ${BINDIR} is not on your PATH. Add it, e.g.:"
+    echo "  echo 'export PATH=\"${BINDIR}:\$PATH\"' >> ~/.zshrc && exec zsh"
+    ;;
+esac
 
 echo ""
 "${BINDIR}/claude-says" --version

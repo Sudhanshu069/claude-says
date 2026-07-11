@@ -32,7 +32,7 @@ A single, dependency-free binary with a live TUI: watch (and hear) what Claude i
 curl -fsSL https://raw.githubusercontent.com/Sudhanshu069/claude-says/main/install.sh | sh
 ```
 
-Detects your chip, downloads the latest macOS release, **verifies its SHA-256 checksum**, and installs `claude-says` to `/usr/local/bin` (override with `BINDIR=…`). Then run `claude-says start`.
+Detects your chip, downloads the latest macOS release, **verifies its SHA-256 checksum**, and installs `claude-says` — no `sudo` needed on Apple Silicon: it installs to `/usr/local/bin` when that's writable, otherwise to `~/.local/bin` (override either with `BINDIR=…`). Then run `claude-says start`.
 
 <details>
 <summary>…or download a release manually</summary>
