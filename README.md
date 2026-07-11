@@ -8,11 +8,20 @@
 
 Stop staring at your terminal waiting for Claude Code to finish. **claude-says** reads Claude's output aloud in real-time so you can step away, stretch, or keep working — and just listen.
 
-A single, dependency-free binary with a live TUI: watch (and hear) what Claude is building, switch sessions, and pause on a keystroke.
+A single, dependency-free binary with a live TUI: watch (and hear) what Claude is building, mute or skip a sentence, and switch sessions on a keystroke.
 
 > **macOS only** — playback uses `afplay` and the default voice uses the built-in `say` command.
 
-> ### ⚙️ Now a Go rewrite
+## Highlights
+
+- 🔊 **Real-time & local.** Speaks each of Claude's replies as it's written, using the macOS `say` voice — no API keys, no cloud, nothing leaves your machine.
+- 🧹 **Clean by default.** Skips interstitial filler ("Let me check.", "Got it.") and back-to-back repeats so you hear the substance, not the chatter. `--verbatim` reads everything.
+- 🎛️ **Live controls.** Pause, **mute**, **skip the current sentence**, or switch sessions — all from the TUI on a keystroke.
+- ⚙️ **Remembers your setup.** `--voice`, `--rate`, and `--volume` are saved automatically, so a bare `claude-says start` reuses them.
+- 🗣️ **Optional narrator.** Rephrase output into a spoken summary via Google Gemini (obvious secrets redacted before they leave) — or a fully **local ollama** model that never phones home.
+- 📦 **One static binary.** No Node, no npm, no runtime dependencies.
+
+> ### ⚙️ A Go rewrite
 > This is a ground-up **Go port** of the original Node.js project (which was no longer maintained). It ships as one static binary — no `node_modules`, no npm — with a real Bubble Tea TUI and an audio pipeline rebuilt to fix a class of ordering/race bugs the Node daemon had. See [What changed from the Node version](#what-changed-from-the-node-version).
 
 ## Install
@@ -188,7 +197,7 @@ claude-says completion bash | sudo tee /usr/local/etc/bash_completion.d/claude-s
 claude-says completion fish > ~/.config/fish/completions/claude-says.fish
 ```
 
-Then: `claude-says --voice <Tab>` cycles Daniel, Grandma, Karen, Samantha, …
+Then: `claude-says --voice <Tab>` cycles Daniel, Grandma, Karen, Samantha, … and `--narrator-provider <Tab>` offers `gemini` / `ollama`.
 
 ## Configuration
 
@@ -211,7 +220,7 @@ Settings live in `~/.claude-says/config.json` (owner-only, `0600`) and are merge
 ## How It Works
 
 1. The daemon **watches the active Claude Code session transcript** directly (fsnotify + a safety poll) and picks up each new assistant text block.
-2. The text processor splits it into sentences and strips markdown/code/URL noise, and (optionally) rephrases it through the narrator.
+2. The text processor splits it into sentences, strips markdown/code/URL noise, drops filler and duplicates (on by default), and (optionally) rephrases it through the narrator.
 3. Each sentence is synthesized by macOS `say` and played in strict order by an **epoch-fenced audio queue**, so out-of-order synth results never play out of sequence — and switching sessions can never bleed the old session's audio into the new one.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design.
@@ -219,15 +228,15 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design.
 ## Project layout
 
 ```
-cmd/claude-says/     CLI (Cobra): start [default] + voices
+cmd/claude-says/     CLI (Cobra): start [default] + voices + uninstall; preference flags auto-persist
 internal/config      ~/.claude-says/config.json (0600, atomic writes)
 internal/logx        structured logging (slog: pretty on a TTY, JSON when piped)
 internal/session     Claude Code session discovery under ~/.claude/projects
 internal/transcript  transcript watcher (fsnotify + safety poll, UUID dedup)
-internal/textproc    sentence chunking + markdown/URL/code cleaning
-internal/audio       epoch-fenced ordered queue + afplay player
+internal/textproc    sentence chunking + markdown/URL/code cleaning + content filters (dedupe/filler/skip)
+internal/audio       epoch-fenced ordered queue (pause/mute/skip) + afplay player
 internal/tts         provider interface + macOS `say`
-internal/narrator    LLM narrator interface + gemini
+internal/narrator    narrator interface + gemini (cloud, redacts secrets before egress) + ollama (local)
 internal/daemon      orchestrator (context-cancellable pipeline)
 internal/tui         Bubble Tea TUI
 ```
