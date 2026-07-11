@@ -56,6 +56,9 @@ const (
 	ControlResume
 	ControlSwitch
 	ControlQuit
+	ControlSkip
+	ControlMute
+	ControlUnmute
 )
 
 // Control is a command from the UI to the daemon.
@@ -122,6 +125,7 @@ type Model struct {
 	lines    []string
 	picking  bool
 	paused   bool
+	muted    bool
 	speaking bool
 	provider string
 	narrator string
@@ -254,6 +258,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.send(Control{Kind: ControlResume})
 		}
+		return m, nil
+	case "m":
+		m.muted = !m.muted
+		if m.muted {
+			m.send(Control{Kind: ControlMute})
+		} else {
+			m.send(Control{Kind: ControlUnmute})
+		}
+		return m, nil
+	case "n", "right":
+		m.send(Control{Kind: ControlSkip})
 		return m, nil
 	case "s":
 		// Re-run discovery so the picker reflects sessions created/updated since
@@ -401,7 +416,7 @@ func (m Model) View() string {
 		} else {
 			body = m.vp.View()
 		}
-		footer = m.styles.Session.Render("[p]ause/resume  [s]witch session  [q]uit")
+		footer = m.styles.Session.Render("[p]ause  [m]ute  [n]/→ skip  [s]witch  [q]uit")
 	}
 
 	return strings.Join([]string{header.String(), body, footer}, "\n")
@@ -436,6 +451,8 @@ func truncateLabel(s string, n int) string {
 // statusBadge renders the current playback state for the header.
 func (m Model) statusBadge() string {
 	switch {
+	case m.muted:
+		return m.styles.Paused.Render("🔇 muted")
 	case m.paused:
 		return m.styles.Paused.Render("⏸ paused")
 	case m.speaking:

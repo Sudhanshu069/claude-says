@@ -23,7 +23,7 @@ internal/logx        log/slog logger — pretty on a TTY, JSON when piped; level
 internal/session     session discovery under ~/.claude/projects (MostRecent, FindTranscript)
 internal/transcript  transcript watcher: fsnotify + 200ms safety poll, offset read, UUID dedup, EOF start
 internal/textproc    fence strip, noise filter, sentence split, markdown clean, content filters (dedupe + filler ON by default, --skip substrings; --verbatim opts out), monotonic seq (block-seam separator; every drop happens BEFORE seq++ so no gaps)
-internal/audio       epoch-fenced ordered queue (queue.go) + afplay player (player.go)
+internal/audio       epoch-fenced ordered queue (queue.go: pause/resume, skip, mute/unmute — all preserve the single-owner drain; muted discards before play so no seq stall) + afplay player (player.go, --volume via afplayArgs)
 internal/tts         Provider interface + macOS `say` (New always returns macOS; a stale cloud-provider config falls back to it)
 internal/narrator    Narrator interface (total Narrate) + gemini
 internal/daemon      orchestrator: context-cancellable pipeline, session switch, graceful drain; the text source is the transcript watcher (tests inject via the daemon's buffered `inject` channel)

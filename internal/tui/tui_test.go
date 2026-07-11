@@ -328,6 +328,39 @@ func TestHandleKey_PauseResumeSendsControls(t *testing.T) {
 	}
 }
 
+func TestHandleKey_MuteTogglesControls(t *testing.T) {
+	m, ctrl := newTestModel(t, nil)
+
+	// First "m" mutes.
+	m, _ = step(t, m, runes("m"))
+	if !m.muted {
+		t.Error("model not muted after first m")
+	}
+	if c, ok := drainCtrl(ctrl); !ok || c.Kind != ControlMute {
+		t.Fatalf("first m sent %+v ok=%v, want ControlMute", c, ok)
+	}
+
+	// Second "m" unmutes.
+	m, _ = step(t, m, runes("m"))
+	if m.muted {
+		t.Error("model still muted after second m")
+	}
+	if c, ok := drainCtrl(ctrl); !ok || c.Kind != ControlUnmute {
+		t.Fatalf("second m sent %+v ok=%v, want ControlUnmute", c, ok)
+	}
+}
+
+func TestHandleKey_SkipSendsControl(t *testing.T) {
+	// Both "n" and the right-arrow map to skip.
+	for _, key := range []tea.KeyMsg{runes("n"), {Type: tea.KeyRight}} {
+		m, ctrl := newTestModel(t, nil)
+		step(t, m, key)
+		if c, ok := drainCtrl(ctrl); !ok || c.Kind != ControlSkip {
+			t.Fatalf("%v sent %+v ok=%v, want ControlSkip", key, c, ok)
+		}
+	}
+}
+
 func TestHandleKey_SpaceTogglesPause(t *testing.T) {
 	m, ctrl := newTestModel(t, nil)
 	m, _ = step(t, m, tea.KeyMsg{Type: tea.KeySpace})

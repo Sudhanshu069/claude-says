@@ -594,6 +594,47 @@ func TestPipeline_PauseResume(t *testing.T) {
 	}, 3*time.Second)
 }
 
+// Mute makes the daemon discard sentences instead of playing them; Unmute
+// resumes. Proves the ControlMute/ControlUnmute wiring end to end through the
+// real processor + queue: the muted sentence never reaches the player.
+func TestPipeline_MuteDiscardsUnmutePlays(t *testing.T) {
+	isolateHome(t)
+
+	prov := &fakeProvider{}
+	player := &fakePlayer{playedCh: make(chan string, 8)}
+	d := newDaemon(t, Options{}, prov, player, nil)
+
+	_, cancel, runErr := startRun(t, d)
+	defer func() { cancel(); awaitRun(t, runErr, 3*time.Second) }()
+
+	d.Controls() <- tui.Control{Kind: tui.ControlMute}
+	waitForEvent(t, d.Events(), func(e tui.Event) bool {
+		return e.Kind == tui.EventStatus && e.Text == "Muted"
+	}, 3*time.Second)
+
+	// Feed while muted: the queue discards it and goes idle. Gating on the drain
+	// makes the discard deterministic before we unmute (avoids the synth race).
+	feedText(t, d, "This must be silenced now. ")
+	waitForEvent(t, d.Events(), func(e tui.Event) bool {
+		return e.Kind == tui.EventDrained
+	}, 3*time.Second)
+
+	d.Controls() <- tui.Control{Kind: tui.ControlUnmute}
+	waitForEvent(t, d.Events(), func(e tui.Event) bool {
+		return e.Kind == tui.EventStatus && e.Text == "Unmuted"
+	}, 3*time.Second)
+	feedText(t, d, "This must be spoken now. ")
+
+	if got := waitPlayed(t, player.playedCh, 3*time.Second); got != "This must be spoken now." {
+		t.Fatalf("played %q, want only the post-unmute sentence", got)
+	}
+	for _, s := range player.playedTexts() {
+		if s == "This must be silenced now." {
+			t.Fatalf("muted sentence reached the player: %v", player.playedTexts())
+		}
+	}
+}
+
 // Req 5: Stop(timeout) drains the in-flight sentence, then returns; Run's
 // goroutine exits gracefully (nil).
 func TestPipeline_StopDrainsInFlight(t *testing.T) {

@@ -159,7 +159,9 @@ Filtered sentences are dropped before they're queued, so nothing ever stalls or 
 
 | Key | Action |
 |-----|--------|
-| `p` | Pause / Resume |
+| `p` / `space` | Pause / Resume (holds the queue; resume replays the current sentence) |
+| `m` | Mute / Unmute (silences output and discards sentences while muted — no backlog) |
+| `n` / `→` | Skip the current sentence and move to the next |
 | `s` | Switch session (shows each session by name) |
 | `q` | Quit (drains the current sentence, then exits) |
 

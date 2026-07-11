@@ -598,3 +598,74 @@ func TestConcurrentSwitchPauseResumeNoDeadlock(t *testing.T) {
 		t.Fatalf("queue wedged after concurrent switch/pause storm: %v", err)
 	}
 }
+
+// Skip cancels the current sentence and advances to the next (unlike pause,
+// which holds and replays). Seq 1 is playing; Skip drops it and plays seq 2.
+func TestSkipCurrentAdvancesToNext(t *testing.T) {
+	fake := &fakePlayer{release: make(chan struct{})}
+	h := newHarness(t, fake)
+	h.q.Reserve(ItemID{Epoch: 0, Seq: 1})
+	h.q.Reserve(ItemID{Epoch: 0, Seq: 2})
+	deliverAudio(h.q, 0, 1)
+	deliverAudio(h.q, 0, 2)
+
+	h.col.waitFor(t, EventPlaying, 1, time.Second) // seq 1 playing (blocked on release)
+	h.q.Skip()                                     // cancel seq 1, advance to seq 2
+	h.col.waitFor(t, EventPlaying, 2, time.Second) // seq 2 now playing (blocked)
+	fake.release <- struct{}{}                     // let seq 2 finish
+
+	if err := quiesce(t, h.q, time.Second); err != nil {
+		t.Fatalf("quiesce: %v", err)
+	}
+	if got := fake.snapshot(); !reflect.DeepEqual(got, []byte{2}) {
+		t.Fatalf("played %v, want [2] (seq 1 skipped, seq 2 played)", got)
+	}
+}
+
+// Mute discards rendered sentences instead of playing them; Unmute resumes with
+// live content. Seq 2 and 3 arrive while muted and must never reach the player.
+func TestMuteDiscardsThenUnmuteResumes(t *testing.T) {
+	fake := &fakePlayer{} // non-blocking: plays instantly
+	h := newHarness(t, fake)
+
+	h.q.Reserve(ItemID{Epoch: 0, Seq: 1})
+	deliverAudio(h.q, 0, 1)
+	h.col.waitFor(t, EventPlayed, 1, time.Second) // seq 1 played for real
+
+	h.q.Mute()
+	h.q.Reserve(ItemID{Epoch: 0, Seq: 2})
+	deliverAudio(h.q, 0, 2)
+	h.q.Reserve(ItemID{Epoch: 0, Seq: 3})
+	deliverAudio(h.q, 0, 3)
+	h.col.waitFor(t, EventPlayed, 3, time.Second) // 2 and 3 discarded (still EventPlayed)
+
+	h.q.Unmute()
+	h.q.Reserve(ItemID{Epoch: 0, Seq: 4})
+	deliverAudio(h.q, 0, 4)
+	h.col.waitFor(t, EventPlayed, 4, time.Second)
+
+	if err := quiesce(t, h.q, time.Second); err != nil {
+		t.Fatalf("quiesce: %v", err)
+	}
+	if got := fake.snapshot(); !reflect.DeepEqual(got, []byte{1, 4}) {
+		t.Fatalf("played %v, want [1 4] (seq 2,3 muted)", got)
+	}
+}
+
+// Mute mid-playback cuts the current sentence immediately and records nothing.
+func TestMuteCutsCurrentPlayback(t *testing.T) {
+	fake := &fakePlayer{release: make(chan struct{})}
+	h := newHarness(t, fake)
+	h.q.Reserve(ItemID{Epoch: 0, Seq: 1})
+	deliverAudio(h.q, 0, 1)
+	h.col.waitFor(t, EventPlaying, 1, time.Second) // seq 1 playing (blocked)
+
+	h.q.Mute() // cancels the in-flight play; muted branch drops the slot
+
+	if err := quiesce(t, h.q, time.Second); err != nil {
+		t.Fatalf("quiesce: %v", err)
+	}
+	if got := fake.snapshot(); len(got) != 0 {
+		t.Fatalf("played %v, want nothing (muted mid-play)", got)
+	}
+}

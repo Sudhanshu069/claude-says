@@ -290,6 +290,15 @@ func (d *Daemon) Run(ctx context.Context) error {
 				d.queue.Resume()
 				d.paused = false
 				d.emitStatus("Resumed")
+			case tui.ControlSkip:
+				d.queue.Skip()
+				d.emitStatus("Skipped")
+			case tui.ControlMute:
+				d.queue.Mute()
+				d.emitStatus("Muted")
+			case tui.ControlUnmute:
+				d.queue.Unmute()
+				d.emitStatus("Unmuted")
 			case tui.ControlSwitch:
 				doSwitch(c.SessionID)
 			case tui.ControlQuit:

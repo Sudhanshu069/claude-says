@@ -60,6 +60,9 @@ const (
 	cmdResume
 	cmdSwitch
 	cmdQuiesce
+	cmdSkip
+	cmdMute
+	cmdUnmute
 )
 
 // cmd is the tagged union consumed by Run's single drain goroutine.
@@ -107,6 +110,7 @@ type Queue struct {
 	nextSeq uint64
 	slots   map[uint64]*slot
 	paused  bool
+	muted   bool // while true, rendered audio is discarded instead of played
 	waiters []chan struct{}
 }
 
@@ -135,6 +139,7 @@ func (q *Queue) Run(ctx context.Context) {
 		playEpoch  uint64
 		playCancel context.CancelFunc
 		playDone   chan playResult
+		skipping   bool // a cmdSkip cancelled the current playback; drop it, don't replay
 	)
 
 	defer func() {
@@ -190,6 +195,15 @@ func (q *Queue) Run(ctx context.Context) {
 			if s.err != nil {
 				delete(q.slots, q.nextSeq)
 				emit(Event{Kind: EventError, Seq: q.nextSeq, Err: s.err, QueueSize: len(q.slots)})
+				q.nextSeq++
+				continue
+			}
+			if q.muted {
+				// Muted: discard the rendered audio without playing, advancing so the
+				// queue never accumulates a backlog while silenced. Reserves still
+				// arrive in order, so nextSeq never stalls.
+				delete(q.slots, q.nextSeq)
+				emit(Event{Kind: EventPlayed, Seq: q.nextSeq, QueueSize: len(q.slots)})
 				q.nextSeq++
 				continue
 			}
@@ -263,6 +277,26 @@ func (q *Queue) Run(ctx context.Context) {
 				q.paused = false
 				drain()
 
+			case cmdSkip:
+				// Drop just the current sentence and move on. Marking skipping makes
+				// playDone advance past this seq (instead of holding it like pause).
+				if playing {
+					skipping = true
+					playCancel()
+				}
+
+			case cmdMute:
+				q.muted = true
+				if playing {
+					playCancel() // silence the current sentence at once
+				} else {
+					drain() // discard anything already ready
+				}
+
+			case cmdUnmute:
+				q.muted = false
+				drain()
+
 			case cmdSwitch:
 				// New generation: drop every old-epoch slot and reset ordering.
 				q.epoch = c.epoch
@@ -299,9 +333,20 @@ func (q *Queue) Run(ctx context.Context) {
 				drain()
 
 			case errors.Is(pr.err, context.Canceled), errors.Is(pr.err, context.DeadlineExceeded):
-				// Interrupted by pause/switch (same epoch => pause). Keep the slot
-				// ready and do not advance; Resume replays it from the start.
-				if !q.paused {
+				// Interrupted (same epoch). Why decides what happens to the slot:
+				switch {
+				case skipping || q.muted:
+					// Skip or mute: drop this sentence and advance. When muted, the
+					// following drain() discards the rest of the ready backlog too.
+					skipping = false
+					delete(q.slots, pr.seq)
+					q.nextSeq = pr.seq + 1
+					emit(Event{Kind: EventPlayed, Seq: pr.seq, QueueSize: len(q.slots)})
+					drain()
+				case q.paused:
+					// Pause: keep the slot ready and do not advance; Resume replays
+					// it from the start.
+				default:
 					drain()
 				}
 
@@ -355,6 +400,23 @@ func (q *Queue) Pause() {
 // Resume clears the paused flag and resumes draining.
 func (q *Queue) Resume() {
 	q.send(cmd{kind: cmdResume})
+}
+
+// Skip drops the currently-playing sentence and advances to the next queued one.
+// A no-op when nothing is playing.
+func (q *Queue) Skip() {
+	q.send(cmd{kind: cmdSkip})
+}
+
+// Mute silences output: the current sentence is cut and, until Unmute, every
+// rendered sentence is discarded instead of played (no backlog builds up).
+func (q *Queue) Mute() {
+	q.send(cmd{kind: cmdMute})
+}
+
+// Unmute resumes playing newly rendered sentences.
+func (q *Queue) Unmute() {
+	q.send(cmd{kind: cmdUnmute})
 }
 
 // Switch bumps the active epoch: clears slots, resets nextSeq to 1, and cancels
