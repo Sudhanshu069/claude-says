@@ -147,6 +147,8 @@ func newWithDeps(cfg config.Config, opts Options, provider tts.Provider, player 
 	proc := textproc.New(textproc.Options{
 		MinChunkLen: cfg.TextProcessor.MinChunkLength,
 		MaxChunkLen: cfg.TextProcessor.MaxChunkLength,
+		Skip:        cfg.TextProcessor.Skip,
+		Dedupe:      cfg.TextProcessor.Dedupe,
 	})
 
 	return &Daemon{

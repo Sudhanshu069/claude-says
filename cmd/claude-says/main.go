@@ -45,6 +45,8 @@ type startOptions struct {
 	Voice            string
 	Narrator         bool
 	NarratorProvider string
+	Skip             []string
+	Dedupe           bool
 }
 
 func main() {
@@ -173,6 +175,8 @@ func bindStartFlags(fs *pflag.FlagSet, o *startOptions) {
 	fs.StringVarP(&o.Voice, "voice", "v", "", "macOS voice name")
 	fs.BoolVarP(&o.Narrator, "narrator", "n", false, "Enable narrator mode")
 	fs.StringVar(&o.NarratorProvider, "narrator-provider", "", "Narrator LLM provider (default: gemini)")
+	fs.StringArrayVar(&o.Skip, "skip", nil, "Mute spoken sentences containing this text (case-insensitive; repeatable)")
+	fs.BoolVar(&o.Dedupe, "dedupe", false, "Collapse consecutive identical sentences")
 }
 
 // registerStartCompletions wires shell tab-completion for the start flags:
@@ -231,6 +235,13 @@ func applyOverrides(cfg config.Config, o startOptions) config.Config {
 		if o.NarratorProvider != "" {
 			cfg.Narrator.Provider = o.NarratorProvider
 		}
+	}
+	// --skip flags ADD to any patterns already in the config file.
+	if len(o.Skip) > 0 {
+		cfg.TextProcessor.Skip = append(cfg.TextProcessor.Skip, o.Skip...)
+	}
+	if o.Dedupe {
+		cfg.TextProcessor.Dedupe = true
 	}
 	return cfg
 }

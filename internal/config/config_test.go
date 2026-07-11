@@ -112,7 +112,7 @@ func TestLoadOverlaysPartialJSON(t *testing.T) {
 		t.Errorf("Macos.Voice = %q, want default %q", got.Macos.Voice, "Samantha")
 	}
 	// A wholly-absent nested block stays fully default.
-	if got.TextProcessor != DefaultConfig().TextProcessor {
+	if !reflect.DeepEqual(got.TextProcessor, DefaultConfig().TextProcessor) {
 		t.Errorf("TextProcessor = %+v, want default", got.TextProcessor)
 	}
 }

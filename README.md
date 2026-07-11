@@ -128,9 +128,21 @@ claude-says start -s <id>      # Listen to a specific session
 claude-says start --narrator   # Enable LLM narrator mode
 claude-says start --voice "Daniel"
 claude-says start --rate 150
+claude-says start --skip "let me" --skip "now i" --dedupe   # Quiet the chatter (see below)
 claude-says voices             # List available macOS voices
 claude-says --version
 ```
+
+### Filtering what gets spoken
+
+Only the assistant's prose is voiced (tool calls are never read), and code fences, markdown, URLs, and file paths are already stripped. Two flags trim the rest of the noise:
+
+| Flag | Effect |
+|------|--------|
+| `--skip <text>` | Mute any sentence containing `<text>` (case-insensitive). Repeatable — e.g. `--skip "let me" --skip "now i'll"` silences the interstitial "Let me check…" / "Now I'll…" filler between tool calls. |
+| `--dedupe` | Collapse a sentence that's identical to the one just spoken (consecutive only). |
+
+Filtered sentences are dropped before they're queued, so nothing stalls or plays out of order. Both also persist in the config file (`textProcessor.skip`, `textProcessor.dedupe`).
 
 ## Controls (in the TUI)
 
@@ -167,7 +179,7 @@ Settings live in `~/.claude-says/config.json` (owner-only, `0600`) and are merge
 {
   "provider": "macos",
   "macos": { "voice": "Samantha", "rate": 200 },
-  "textProcessor": { "minChunkLength": 10, "maxChunkLength": 500, "flushDelay": 1500 },
+  "textProcessor": { "minChunkLength": 10, "maxChunkLength": 500, "flushDelay": 1500, "skip": [], "dedupe": false },
   "narrator": {
     "enabled": false,
     "provider": "gemini",

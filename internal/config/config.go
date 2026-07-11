@@ -27,11 +27,14 @@ type MacosConfig struct {
 	Rate  int    `json:"rate"`
 }
 
-// TextProcessorConfig configures sentence buffering/splitting.
+// TextProcessorConfig configures sentence buffering/splitting and content
+// filtering.
 type TextProcessorConfig struct {
-	MinChunkLength int `json:"minChunkLength"`
-	MaxChunkLength int `json:"maxChunkLength"`
-	FlushDelay     int `json:"flushDelay"` // ms; Node text-processor.js default 1500
+	MinChunkLength int      `json:"minChunkLength"`
+	MaxChunkLength int      `json:"maxChunkLength"`
+	FlushDelay     int      `json:"flushDelay"` // ms; Node text-processor.js default 1500
+	Skip           []string `json:"skip"`       // drop spoken sentences containing any of these (case-insensitive)
+	Dedupe         bool     `json:"dedupe"`     // collapse consecutive identical sentences
 }
 
 // NarratorConfig configures the optional LLM narrator.

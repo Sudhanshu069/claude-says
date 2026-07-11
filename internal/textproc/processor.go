@@ -19,10 +19,13 @@ type Sentence struct {
 	Text string
 }
 
-// Options tunes chunking. Zero values fall back to the defaults below.
+// Options tunes chunking and content filtering. Zero values fall back to the
+// defaults below; nil/false Skip/Dedupe mean "no filtering".
 type Options struct {
-	MinChunkLen int // default 10
-	MaxChunkLen int // default 500
+	MinChunkLen int      // default 10
+	MaxChunkLen int      // default 500
+	Skip        []string // drop any cleaned sentence containing one of these (case-insensitive)
+	Dedupe      bool     // drop a cleaned sentence identical to the previous emitted one
 }
 
 const (
@@ -72,12 +75,15 @@ var (
 // Processor is a pure, non-concurrent state machine. The flush timer lives in
 // the daemon's select loop, not here, so seq stays race-free.
 type Processor struct {
-	opts Options
-	buf  []byte
-	seq  uint64
+	opts  Options
+	buf   []byte
+	seq   uint64
+	last  string   // last emitted cleaned sentence, for --dedupe
+	skips []string // lowercased, non-empty skip substrings (precomputed from opts.Skip)
 }
 
-// New builds a Processor, applying defaults for any zero-valued option.
+// New builds a Processor, applying defaults for any zero-valued option and
+// precomputing the lowercased skip substrings once.
 func New(opts Options) *Processor {
 	if opts.MinChunkLen == 0 {
 		opts.MinChunkLen = defaultMinChunkLen
@@ -85,7 +91,13 @@ func New(opts Options) *Processor {
 	if opts.MaxChunkLen == 0 {
 		opts.MaxChunkLen = defaultMaxChunkLen
 	}
-	return &Processor{opts: opts}
+	p := &Processor{opts: opts}
+	for _, s := range opts.Skip {
+		if t := strings.ToLower(strings.TrimSpace(s)); t != "" {
+			p.skips = append(p.skips, t)
+		}
+	}
+	return p
 }
 
 // Feed strips fenced code blocks, drops noise, appends visible prose to the
@@ -184,16 +196,39 @@ func (p *Processor) tryFlush() []Sentence {
 	return out
 }
 
-// emit cleans a candidate sentence for speech and, if it still meets the
-// minimum length, assigns the next monotonic seq and returns it. A sentence
-// that cleans down below the minimum is dropped WITHOUT consuming a seq.
+// emit cleans a candidate sentence for speech and, if it survives every filter,
+// assigns the next monotonic seq and returns it. Any drop (too short, skip-match,
+// or duplicate) happens BEFORE seq++ so it consumes no seq: the audio queue plays
+// strictly in seq order, and a gap would stall the ordered drain forever.
 func (p *Processor) emit(text string) (Sentence, bool) {
 	cleaned := cleanForSpeech(text)
 	if len(cleaned) < p.opts.MinChunkLen {
 		return Sentence{}, false
 	}
+	if p.skipMatch(cleaned) {
+		return Sentence{}, false
+	}
+	if p.opts.Dedupe && strings.EqualFold(cleaned, p.last) {
+		return Sentence{}, false
+	}
+	p.last = cleaned
 	p.seq++
 	return Sentence{Seq: p.seq, Text: cleaned}, true
+}
+
+// skipMatch reports whether cleaned contains any configured skip substring
+// (case-insensitive). Empty skip list is the common case and returns fast.
+func (p *Processor) skipMatch(cleaned string) bool {
+	if len(p.skips) == 0 {
+		return false
+	}
+	lc := strings.ToLower(cleaned)
+	for _, s := range p.skips {
+		if strings.Contains(lc, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // Flush emits whatever remains (if >= MinChunkLen) as a final sentence.
@@ -209,10 +244,12 @@ func (p *Processor) Flush() []Sentence {
 	return out
 }
 
-// Reset clears the buffer and zeroes seq (called on session switch).
+// Reset clears the buffer, zeroes seq, and forgets the last emitted sentence
+// (called on session switch).
 func (p *Processor) Reset() {
 	p.buf = nil
 	p.seq = 0
+	p.last = ""
 }
 
 // HasPending reports whether buffered text is awaiting a flush (arms the timer).

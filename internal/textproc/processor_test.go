@@ -204,3 +204,48 @@ func TestFlushAndReset(t *testing.T) {
 		t.Fatalf("post-reset feed = %+v, want seq restart at 1", again)
 	}
 }
+
+// --skip: a cleaned sentence containing a skip substring (case-insensitively) is
+// dropped and — crucially — consumes no seq, so surviving sentences stay
+// contiguously numbered. A seq gap would stall the audio queue's ordered drain.
+func TestSkipDropsMatchAndKeepsSeqContiguous(t *testing.T) {
+	p := New(Options{Skip: []string{"let me"}})
+	// Middle sentence matches "let me" (via "Let Me", proving case-insensitivity)
+	// and must vanish without leaving a seq hole between the other two.
+	got := p.Feed("First real sentence here. Let Me check the config now. Second real sentence here. ")
+	if len(got) != 2 {
+		t.Fatalf("got %d sentences, want 2 (middle skipped): %+v", len(got), got)
+	}
+	if got[0].Seq != 1 || got[1].Seq != 2 {
+		t.Fatalf("seqs = %d,%d, want 1,2 (skipped sentence must not consume a seq)", got[0].Seq, got[1].Seq)
+	}
+	if got[0].Text != "First real sentence here." || got[1].Text != "Second real sentence here." {
+		t.Fatalf("surviving text = %q,%q", got[0].Text, got[1].Text)
+	}
+}
+
+// --dedupe: a cleaned sentence identical (case-insensitively) to the previous
+// EMITTED one is dropped without consuming a seq; a later re-occurrence after a
+// different sentence is spoken again (dedupe is consecutive-only).
+func TestDedupeCollapsesConsecutiveOnly(t *testing.T) {
+	p := New(Options{Dedupe: true})
+	got := p.Feed("Running the tests now. Running the tests now. Something else entirely here. Running the tests now. ")
+	if len(got) != 3 {
+		t.Fatalf("got %d sentences, want 3 (one consecutive dup dropped): %+v", len(got), got)
+	}
+	if got[0].Seq != 1 || got[1].Seq != 2 || got[2].Seq != 3 {
+		t.Fatalf("seqs = %d,%d,%d, want contiguous 1,2,3", got[0].Seq, got[1].Seq, got[2].Seq)
+	}
+	if got[0].Text != "Running the tests now." || got[1].Text != "Something else entirely here." || got[2].Text != "Running the tests now." {
+		t.Fatalf("dedupe text = %+v (only the immediately-consecutive dup should drop)", got)
+	}
+}
+
+// No filters configured => behaviour is unchanged (every sentence emitted).
+func TestNoFiltersEmitsAll(t *testing.T) {
+	p := New(Options{})
+	got := p.Feed("One sentence here now. One sentence here now. ")
+	if len(got) != 2 {
+		t.Fatalf("got %d, want 2 (no dedupe unless enabled): %+v", len(got), got)
+	}
+}

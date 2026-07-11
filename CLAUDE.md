@@ -22,7 +22,7 @@ internal/config      ~/.claude-says/config.json (camelCase JSON, 0600, atomic wr
 internal/logx        log/slog logger — pretty on a TTY, JSON when piped; level via env
 internal/session     session discovery under ~/.claude/projects (MostRecent, FindTranscript)
 internal/transcript  transcript watcher: fsnotify + 200ms safety poll, offset read, UUID dedup, EOF start
-internal/textproc    fence strip, noise filter, sentence split, markdown clean, monotonic seq (block-seam separator)
+internal/textproc    fence strip, noise filter, sentence split, markdown clean, content filters (--skip substrings + --dedupe), monotonic seq (block-seam separator; drops happen BEFORE seq++ so no gaps)
 internal/audio       epoch-fenced ordered queue (queue.go) + afplay player (player.go)
 internal/tts         Provider interface + macOS `say` (New always returns macOS; a stale cloud-provider config falls back to it)
 internal/narrator    Narrator interface (total Narrate) + gemini
